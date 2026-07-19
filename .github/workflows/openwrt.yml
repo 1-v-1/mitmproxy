@@ -65,10 +65,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up QEMU for cross-arch docker builds
-        uses: docker/setup-qemu-action@fd299a4631ba921f8f6cf2bd065518faf0d388ee # v3.7.0
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db # v3.11.0
+        uses: docker/setup-buildx-action@v3
 
       - name: Resolve mitmproxy version
         id: ver
@@ -89,7 +89,7 @@ jobs:
               --out "$GITHUB_WORKSPACE/release/dist"
 
       - name: Upload musl tarball artifact
-        uses: actions/upload-artifact@602f7bbd70e215ed9aa23e6a83ddab6e245a0fdcdde54dd6a828e2a14cd1ec8c # v6.0.2
+        uses: actions/upload-artifact@v4
         with:
           name: mitmweb-musl-${{ matrix.arch }}
           path: release/dist/mitmweb-linux-musl-${{ matrix.arch }}-${{ steps.ver.outputs.version }}.tar.xz
@@ -137,7 +137,7 @@ jobs:
           fi
 
       - name: Download the matching musl tarball artifact
-        uses: actions/download-artifact@fa5ce311a8c5b0c87fcb1e76e73926e3c3f12f54e # v4.1.7
+        uses: actions/download-artifact@v4
         with:
           name: mitmweb-musl-${{ matrix.mitmweb_arch }}
           path: dl_in
@@ -190,7 +190,7 @@ jobs:
           ls -la ipk_out/
 
       - name: Upload ipk artifact
-        uses: actions/upload-artifact@602f7bbd70e215ed9aa23e6a83ddab6e245a0fdcdde54dd6a828e2a14cd1ec8c # v6.0.2
+        uses: actions/upload-artifact@v4
         with:
           name: mitmweb-ipk-${{ matrix.profile }}
           path: ipk_out
@@ -211,7 +211,7 @@ jobs:
       contents: write
     steps:
       - name: Download all ipk artifacts
-        uses: actions/download-artifact@fa5ce311a8c5b0c87fcb1e76e73926e3c3f12f54e # v4.1.7
+        uses: actions/download-artifact@v4
         with:
           path: dist
 
@@ -227,7 +227,7 @@ jobs:
           cat release-asset/SHA256SUMS
 
       - name: Create GitHub release and attach ipks
-        uses: softprops/action-gh-release@9b7915e56f9f9ce7935a26ce9a9e0257abf3958e # v2.1.0
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: 'mitmweb OpenWrt packages (${{ github.ref_name }})'
