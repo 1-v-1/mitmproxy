@@ -73,10 +73,13 @@ jobs:
       - name: Resolve mitmproxy version
         id: ver
         run: |
-          VERSION=$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
-              pyproject.toml | head -n1)
-          [ -n "$VERSION" ] || { echo "could not read version from pyproject.toml" >&2; exit 1; }
-          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          # pyproject.toml has `dynamic = ["version"]`, so there is no
+          # literal `version = "..."` line to grep. mitmproxy/version.py
+          # is the actual source-of-truth: VERSION = "13.0.0.dev" etc.
+          VERSION=$(sed -nE 's/^VERSION[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+              mitmproxy/version.py | head -n1)
+          [ -n "$VERSION" ] || { echo "could not read VERSION from mitmproxy/version.py" >&2; exit 1; }
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}"
 
       - name: Build mitmweb ELF (musl, ${{ matrix.arch }})

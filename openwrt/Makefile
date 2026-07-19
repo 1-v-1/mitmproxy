@@ -9,13 +9,15 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=mitmweb
 # Version resolution (in order of precedence):
 #   1. MITMWEB_VERSION env var — used by the GitHub Actions workflow.
-#   2. The parent repo's pyproject.toml — used for normal in-repo builds.
+#   2. mitmproxy/version.py — the actual source of truth (pyproject.toml
+#      declares `dynamic = ["version"]`, so there is no literal version
+#      to grep from there).
 #   3. A hardcoded fallback so a stray standalone build still works.
 ifdef MITMWEB_VERSION
   PKG_VERSION:=$(MITMWEB_VERSION)
 else
-  PKG_VERSION:=$(shell sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' $(CURDIR)/../pyproject.toml 2>/dev/null | head -n1)
-  PKG_VERSION:=$(if $(PKG_VERSION),$(PKG_VERSION),12.0.0)
+  PKG_VERSION:=$(shell sed -nE 's/^VERSION\s*=\s*"([^"]+)".*/\1/p' $(CURDIR)/../mitmproxy/version.py 2>/dev/null | head -n1)
+  PKG_VERSION:=$(if $(PKG_VERSION),$(PKG_VERSION),13.0.0.dev)
 endif
 PKG_RELEASE:=1
 
