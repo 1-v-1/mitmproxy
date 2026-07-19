@@ -841,7 +841,7 @@ def test_max_flows_bulk_eviction_emits_refresh():
 def test_max_flows_evict_oldest_zero_is_noop():
     """_evict_oldest(0) / _evict_oldest(-1) must early-return without touching the store."""
     v = view.View()
-    with taddons.context(v) as tctx:
+    with taddons.context(v):
         flows = [tft(start=i) for i in range(3)]
         v.add(flows)
         assert v.store_count() == 3
@@ -856,7 +856,7 @@ def test_max_flows_add_skips_when_cap_zero_post_validation_bypass():
     configure() validation), the second `if` after eviction still matches
     and we break out of the loop without inserting the flow."""
     v = view.View()
-    with taddons.context(v) as tctx:
+    with taddons.context(v):
         # Bypass the cap>=1 validator in configure() by poking the attribute
         # directly. The defensive branch in add() then kicks in.
         v._max_flows = 0
