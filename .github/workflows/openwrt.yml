@@ -2,17 +2,19 @@ name: Build OpenWrt packages
 
 # Triggers
 # --------
-# • push to any branch that touches openwrt/**, pyproject.toml, or release/specs/**
-# • pull_request touching openwrt/**
-# • manual dispatch (workflow_dispatch) for ad-hoc builds
-# • release tags (v*) — uploads artifacts as release assets
-#
-# We intentionally do NOT run on every push to main, to keep CI cost
-# proportional to the surface area that this package actually depends on.
+# • push of a tag matching v* — builds musl ELFs + ipks and creates a
+#   GitHub Release with the ipks as assets. This is the canonical
+#   "release" workflow: tag → built binaries → published release.
+# • push to any branch that touches openwrt/**, pyproject.toml, or
+#   release/specs/** — sanity-checks the build pipeline but does NOT
+#   touch Releases (artifacts only).
+# • pull_request touching openwrt/** — same as above.
+# • manual dispatch (workflow_dispatch) for ad-hoc builds.
 
 on:
   push:
     branches: ['**']
+    tags: ['v*']
     paths:
       - 'openwrt/**'
       - 'release/specs/**'
@@ -32,8 +34,6 @@ on:
         description: 'OpenWrt SDK version (e.g. 24.10.0). Leave empty for default.'
         type: string
         default: ''
-  release:
-    types: [published]
 
 # Minimal read perms are enough; no code is published from this workflow.
 permissions:
@@ -198,12 +198,14 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # 3. On a release (tag), bundle all built ipks into a GitHub release asset.
+  # 3. On a v* tag push, bundle all built ipks into a GitHub release.
+  #    Creates the release if it does not yet exist (a tag push does NOT
+  #    auto-create a release on its own — only `release: published` does).
   # ---------------------------------------------------------------------------
   publish-on-release:
     name: publish (release)
     needs: openwrt-package
-    if: github.event_name == 'release'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -224,9 +226,13 @@ jobs:
           (cd release-asset && sha256sum *.ipk > SHA256SUMS)
           cat release-asset/SHA256SUMS
 
-      - name: Attach to release
+      - name: Create GitHub release and attach ipks
         uses: softprops/action-gh-release@9b7915e56f9f9ce7935a26ce9a9e0257abf3958e # v2.1.0
         with:
+          tag_name: ${{ github.ref_name }}
+          name: 'mitmweb OpenWrt packages (${{ github.ref_name }})'
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             release-asset/*.ipk
             release-asset/SHA256SUMS
