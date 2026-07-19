@@ -1,0 +1,48 @@
+{
+    "mitmweb-status": {
+        "description": "Allow LuCI to read mitmweb state, control the service, and stream CA files.",
+        "read": {
+            "cgi-io": [
+                "download"
+            ],
+            "file": {
+                "/etc/mitmweb/*": [
+                    "read"
+                ],
+                "/var/log/mitmweb.log": [
+                    "read"
+                ],
+                "/usr/bin/openssl": [
+                    "exec"
+                ]
+            },
+            "ubus": {
+                "service": [
+                    "list",
+                    "get"
+                ],
+                "system": [
+                    "board"
+                ]
+            }
+        },
+        "write": {
+            "cgi-io": [
+                "download"
+            ],
+            "uci": [
+                "mitmweb"
+            ],
+            "file": {
+                "/etc/mitmweb/*": [
+                    "read"
+                ]
+            },
+            "ubus": {
+                "service": [
+                    "set"
+                ]
+            }
+        }
+    }
+}

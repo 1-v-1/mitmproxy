@@ -1,0 +1,367 @@
+#!/bin/sh /etc/rc.common
+#
+# /etc/init.d/mitmweb — procd init script for the mitmweb daemon.
+#
+# SPDX-License-Identifier: MIT
+#
+# Responsibilities:
+#   1. Read UCI config and assemble mitmweb's argv (it supports multiple
+#      --mode flags because upstream `mode` is a Sequence[str]).
+#   2. Set HOME to the configured confdir so mitmproxy's
+#      os.path.expanduser('~/.mitmproxy') lands where our CA bundle lives.
+#   3. When `mode` includes `transparent`, manage an iptables nat chain
+#      (MITMWEB) that REDIRECTs TCP:80 / TCP:443 to mitmproxy — works
+#      alongside fw4 because fw4 only owns `filter` and `mangle`.
+#   4. Optionally copy mitmproxy-ca-cert.pem into /etc/ssl/certs and run
+#      c_rehash, so the router itself trusts the CA.
+#   5. Respawn on crash, log to /var/log/mitmweb.log.
+
+USE_PROCD=1
+START=95
+STOP=10
+
+CONFDIR_DEFAULT="/etc/mitmweb"
+LOGFILE="/var/log/mitmweb.log"
+PIDFILE="/var/run/mitmweb.pid"
+BIN="/usr/lib/mitmweb/mitmweb.bin"
+NAT_CHAIN="MITMWEB"
+
+uci_get() {
+    local v
+    v="$(uci -q get "mitmweb.main.$1")" || v=""
+    if [ -n "$v" ] && [ "$v" != "nil" ]; then
+        printf '%s' "$v"
+    else
+        printf '%s' "$2"
+    fi
+}
+
+have_mode() {
+    local mode="$1" target="$2"
+    # mode may be a space-separated list (MultiValue renders as such).
+    case " $mode " in
+        *" $target "*) return 0 ;;
+        *)             return 1 ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Mode → --mode <spec> argument generation.
+# ---------------------------------------------------------------------------
+build_mode_args() {
+    local mode listen_host m
+    mode="$(uci_get mode '')"
+    listen_host="$(uci_get listen_host '')"
+
+    [ -z "$mode" ] && return 0
+
+    for m in $mode; do
+        case "$m" in
+            regular)
+                printf -- '--mode regular@%s:%s\n' \
+                    "${listen_host:-0.0.0.0}" \
+                    "$(uci_get regular_listen_port 8080)"
+                ;;
+            socks5)
+                printf -- '--mode socks5@%s:%s\n' \
+                    "${listen_host:-0.0.0.0}" \
+                    "$(uci_get socks5_listen_port 1080)"
+                ;;
+            transparent)
+                printf -- '--mode transparent@%s:%s\n' \
+                    "${listen_host:-0.0.0.0}" \
+                    "$(uci_get listen_port 8080)"
+                ;;
+            upstream)
+                local url
+                url="$(uci_get upstream_parent_url '')"
+                if [ -z "$url" ]; then
+                    logger -t mitmweb "ERROR: upstream_parent_url required when mode=upstream"
+                    echo "ERROR: upstream_parent_url required when mode=upstream" >&2
+                    exit 1
+                fi
+                case "$url" in
+                    http://*|https://*) ;;
+                    *)
+                        logger -t mitmweb "ERROR: upstream url must be http:// or https:// (got: $url)"
+                        echo "ERROR: upstream url must be http:// or https:// (got: $url)" >&2
+                        exit 1
+                        ;;
+                esac
+                printf -- '--mode upstream:%s\n' "$url"
+                ;;
+            reverse)
+                local tgt
+                tgt="$(uci_get reverse_target '')"
+                if [ -z "$tgt" ]; then
+                    logger -t mitmweb "ERROR: reverse_target required when mode=reverse"
+                    echo "ERROR: reverse_target required when mode=reverse" >&2
+                    exit 1
+                fi
+                printf -- '--mode reverse:%s\n' "$tgt"
+                ;;
+            wireguard)
+                local wgp
+                wgp="$(uci_get wireguard_path '')"
+                if [ -z "$wgp" ]; then
+                    logger -t mitmweb "ERROR: wireguard_path required when mode=wireguard"
+                    echo "ERROR: wireguard_path required when mode=wireguard" >&2
+                    exit 1
+                fi
+                printf -- '--mode wireguard:%s\n' "$wgp"
+                ;;
+            dns)
+                printf -- '--mode dns@%s:%s\n' \
+                    "${listen_host:-0.0.0.0}" \
+                    "$(uci_get dns_listen_port 53)"
+                ;;
+            local)
+                printf -- '--mode local\n'
+                ;;
+            *)
+                logger -t mitmweb "WARN: unknown mode '$m', skipping"
+                ;;
+        esac
+    done
+
+    # mode_custom_extra: each non-empty, non-comment line becomes --mode <spec>.
+    local extra
+    extra="$(uci_get mode_custom_extra '')"
+    if [ -n "$extra" ]; then
+        printf '%s\n' "$extra" \
+            | grep -v '^[[:space:]]*\(#\|$\)' \
+            | sed 's/^[[:space:]]*//' \
+            | while IFS= read -r line; do
+                [ -n "$line" ] && printf -- '--mode %s\n' "$line"
+            done
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Build the rest of the argv (--set, --confdir, --listen-*).
+# ---------------------------------------------------------------------------
+build_set_args() {
+    # Web UI options. web_host MUST override mitmweb's default 127.0.0.1
+    # so it's reachable from a LAN client.
+    printf -- '--set web_host=%s\n' "$(uci_get web_host '0.0.0.0')"
+    printf -- '--set web_port=%s\n' "$(uci_get web_port '8081')"
+    printf -- '--set web_open_browser=%s\n' "$(uci_get web_open_browser '0')"
+    printf -- '--set web_debug=%s\n' "$(uci_get web_debug '0')"
+
+    # web_password: empty means "let mitmweb generate a token". Don't pass
+    # --set web_password= (mitmweb would treat it as a malformed hash).
+    local wp
+    wp="$(uci_get web_password '')"
+    [ -n "$wp" ] && printf -- '--set web_password=%s\n' "$wp"
+
+    # TLS / service behavior.
+    printf -- '--set server=%s\n' "$(uci_get server '1')"
+    printf -- '--set ssl_insecure=%s\n' "$(uci_get ssl_insecure '0')"
+
+    # Memory protection (all hot-reloadable through configure()).
+    local v vmf sl bl tt
+    vmf="$(uci_get view_max_flows '0')"
+    case "$vmf" in
+        ''|0|none) printf -- '--set stream_large_bodies=%s\n' "$(uci_get stream_large_bodies '1m')"
+                  printf -- '--set view_max_flows=%s\n' "${vmf}"
+                  ;;
+        *)         printf -- '--set view_max_flows=%s\n' "$vmf" ;;
+    esac
+    sl="$(uci_get stream_large_bodies '')"
+    [ -n "$sl" ] && printf -- '--set stream_large_bodies=%s\n' "$sl"
+    bl="$(uci_get body_size_limit '')"
+    [ -n "$bl" ] && printf -- '--set body_size_limit=%s\n' "$bl"
+    tt="$(uci_get tcp_timeout '120')"
+    [ -n "$tt" ] && printf -- '--set tcp_timeout=%s\n' "$tt"
+
+    # ignore_hosts (transparent mode): join multi-line into a single
+    # comma-separated Sequence[str].
+    local skip_hosts
+    skip_hosts="$(uci_get transparent_skip_hosts '')"
+    if [ -n "$skip_hosts" ]; then
+        local joined
+        joined="$(printf '%s\n' "$skip_hosts" \
+            | grep -v '^[[:space:]]*\(#\|$\)' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | paste -sd ',' -)"
+        if [ -n "$joined" ]; then
+            printf -- '--set ignore_hosts=%s\n' "$joined"
+        fi
+    fi
+
+    # extra_set: each line becomes --set k=v.
+    local xs
+    xs="$(uci_get extra_set '')"
+    if [ -n "$xs" ]; then
+        printf '%s\n' "$xs" \
+            | grep -v '^[[:space:]]*\(#\|$\)' \
+            | sed 's/^[[:space:]]*//' \
+            | while IFS= read -r line; do
+                [ -n "$line" ] && printf -- '--set %s\n' "$line"
+            done
+    fi
+
+    # extra_args: appended verbatim (not --set semantics).
+    local xa
+    xa="$(uci_get extra_args '')"
+    [ -n "$xa" ] && printf '%s\n' "$xa"
+}
+
+# Assemble the full argv (one token per line, then space-joined later).
+build_args() {
+    local lh lp
+    lh="$(uci_get listen_host '')"
+    lp="$(uci_get listen_port '8080')"
+    [ -n "$lh" ] && printf -- '--listen-host %s\n' "$lh"
+    [ -n "$lp" ] && printf -- '--listen-port %s\n' "$lp"
+    printf -- '--confdir %s\n' "$(uci_get confdir "$CONFDIR_DEFAULT")"
+
+    build_mode_args
+    build_set_args
+}
+
+# ---------------------------------------------------------------------------
+# iptables manipulation (only when transparent mode is enabled).
+# ---------------------------------------------------------------------------
+setup_iptables() {
+    local mode iface http_port https_port listen_port http_intercept https_intercept skip_subnets
+    mode="$(uci_get mode '')"
+    have_mode "$mode" "transparent" || return 0
+
+    iface="$(uci_get transparent_lan_iface br-lan)"
+    http_intercept="$(uci_get transparent_intercept_http 1)"
+    https_intercept="$(uci_get transparent_intercept_https 1)"
+    http_port="$(uci_get transparent_http_port 80)"
+    https_port="$(uci_get transparent_https_port 443)"
+    listen_port="$(uci_get listen_port 8080)"
+    skip_subnets="$(uci_get transparent_skip_subnets '')"
+
+    iptables -t nat -N "$NAT_CHAIN" 2>/dev/null
+    iptables -t nat -F "$NAT_CHAIN"
+
+    # Always skip loopback and the router itself.
+    iptables -t nat -A "$NAT_CHAIN" -p tcp -d 127.0.0.0/8 -j RETURN
+
+    local lan_ip
+    lan_ip="$(uci -q get network.lan.ipaddr | head -n1)"
+    if [ -n "$lan_ip" ]; then
+        iptables -t nat -A "$NAT_CHAIN" -p tcp -d "$lan_ip" -j RETURN
+    fi
+
+    # Skip user-listed CIDRs at PREROUTING (no redirect).
+    if [ -n "$skip_subnets" ]; then
+        printf '%s\n' "$skip_subnets" \
+            | grep -v '^[[:space:]]*\(#\|$\)' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | grep -v '^$' \
+            | while IFS= read -r subnet; do
+                [ -n "$subnet" ] && \
+                    iptables -t nat -A "$NAT_CHAIN" -p tcp -s "$subnet" -j RETURN
+            done
+    fi
+
+    [ "$http_intercept" = "1" ] && \
+        iptables -t nat -A "$NAT_CHAIN" -p tcp --dport "$http_port" \
+            -j REDIRECT --to-ports "$listen_port"
+    [ "$https_intercept" = "1" ] && \
+        iptables -t nat -A "$NAT_CHAIN" -p tcp --dport "$https_port" \
+            -j REDIRECT --to-ports "$listen_port"
+
+    # Idempotent prepend.
+    iptables -t nat -C PREROUTING -i "$iface" -p tcp -j "$NAT_CHAIN" 2>/dev/null || \
+        iptables -t nat -I PREROUTING 1 -i "$iface" -p tcp -j "$NAT_CHAIN"
+
+    logger -t mitmweb "installed iptables nat:$NAT_CHAIN REDIRECT on $iface"
+}
+
+teardown_iptables() {
+    local iface
+    iface="$(uci_get transparent_lan_iface br-lan)"
+    iptables -t nat -D PREROUTING -i "$iface" -p tcp -j "$NAT_CHAIN" 2>/dev/null
+    iptables -t nat -F "$NAT_CHAIN" 2>/dev/null
+    iptables -t nat -X "$NAT_CHAIN" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# System CA trust.
+# ---------------------------------------------------------------------------
+trust_ca_install() {
+    [ "$(uci_get trust_ca_system 0)" = "1" ] || return 0
+    local confdir cert
+    confdir="$(uci_get confdir "$CONFDIR_DEFAULT")"
+    cert="$confdir/mitmproxy-ca-cert.pem"
+    [ -f "$cert" ] || return 0
+
+    cp -f "$cert" /etc/ssl/certs/mitmproxy-ca-cert.pem
+    c_rehash /etc/ssl/certs 2>/dev/null || true
+    logger -t mitmweb "installed CA into /etc/ssl/certs"
+}
+
+trust_ca_uninstall() {
+    rm -f /etc/ssl/certs/mitmproxy-ca-cert.pem
+    c_rehash /etc/ssl/certs 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# procd hooks.
+# ---------------------------------------------------------------------------
+start_service() {
+    local enabled
+    enabled="$(uci_get enabled 0)"
+    if [ "$enabled" != "1" ]; then
+        logger -t mitmweb "disabled in UCI, not starting"
+        return 0
+    fi
+
+    if [ ! -x "$BIN" ]; then
+        logger -t mitmweb "binary not found at $BIN — package not installed correctly?"
+        echo "mitmweb binary not found at $BIN" >&2
+        return 1
+    fi
+
+    local confdir
+    confdir="$(uci_get confdir "$CONFDIR_DEFAULT")"
+    mkdir -p "$confdir" /var/log
+    touch "$LOGFILE"
+
+    setup_iptables
+    trust_ca_install
+
+    # Build the argv into a newline-separated list and pass it.
+    local argv
+    argv="$(build_args)"
+    if [ -z "$argv" ]; then
+        logger -t mitmweb "no usable --mode configured, not starting"
+        return 1
+    fi
+    logger -t mitmweb "starting with argv: $argv"
+
+    procd_open_instance "mitmweb"
+    procd_set_param command /usr/bin/mitmweb
+    [ -n "$argv" ] && procd_set_param args $argv
+    procd_set_param env HOME="$confdir" PYTHONUNBUFFERED=1
+    procd_set_param stdout "$LOGFILE"
+    procd_set_param stderr "$LOGFILE"
+    procd_set_param pidfile "$PIDFILE"
+    procd_set_param respawn 3600 5 5
+    procd_set_param nice 5
+    procd_set_param limits nofile="65535 65535"
+    procd_close_instance
+}
+
+stop_service() {
+    teardown_iptables
+    trust_ca_uninstall
+}
+
+service_triggers() {
+    procd_add_reload_trigger "mitmweb"
+    local iface
+    iface="$(uci_get transparent_lan_iface br-lan)"
+    [ -n "$iface" ] && procd_add_interface_trigger "interface.*" "$iface" /etc/init.d/mitmweb reload
+}
+
+reload_service() {
+    stop
+    start
+}

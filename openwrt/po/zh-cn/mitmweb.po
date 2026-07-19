@@ -1,0 +1,93 @@
+# Simplified Chinese (zh-CN) translations for luci-app-mitmweb.
+#
+# msgid is the original English string (from the Lua sources); msgstr is the
+# translation. Empty msgstr = fall back to English.
+
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-mitmweb\n"
+"Language: zh-CN\n"
+
+# Status tab
+msgid "Status"
+msgstr "状态"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "STOPPED"
+msgstr "已停止"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "mitmweb URL"
+msgstr "mitmweb URL"
+
+msgid "Conf dir"
+msgstr "配置目录"
+
+msgid "Control"
+msgstr "控制"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Disable"
+msgstr "禁用"
+
+msgid "CA Certificate"
+msgstr "CA 证书"
+
+msgid "CA not generated yet — start the service to create it."
+msgstr "CA 证书尚未生成 — 启动服务后会自动创建。"
+
+msgid "Download PEM"
+msgstr "下载 PEM"
+
+msgid "Download P12"
+msgstr "下载 P12"
+
+msgid "Download CER"
+msgstr "下载 CER"
+
+msgid "Download private key"
+msgstr "下载私钥"
+
+msgid "Regenerate CA"
+msgstr "重新生成 CA"
+
+msgid "This will invalidate the previously installed CA. Clients must reinstall the new certificate to continue trusting mitmproxy. Proceed?"
+msgstr "这会让之前所有客户端装的 CA 失效,必须重新安装新证书才能继续信任 mitmproxy。确认要继续?"
+
+msgid "CA validity: 10 years. Per-domain leaf certs: 199 days (auto-renewed)."
+msgstr "CA 证书有效期:10 年。按域名的 leaf 证书:199 天(自动续签)。"
+
+msgid "Recent log"
+msgstr "最近日志"
+
+# Basic tab
+msgid "MITM Proxy"
+msgstr "MITM 代理"
+
+msgid "Basic Settings"
+msgstr "基础设置"
+
+msgid "Transparent Proxy"
+msgstr "透明代理"

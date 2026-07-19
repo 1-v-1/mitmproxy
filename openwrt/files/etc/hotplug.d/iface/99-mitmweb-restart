@@ -1,0 +1,17 @@
+#!/bin/sh
+# Hotplug: re-install iptables REDIRECT rules when the LAN interface
+# comes back up after ifdown/ifup. The procd service trigger in
+# /etc/init.d/mitmweb also handles this, but this hook catches the case
+# where the interface comes up before the init script has loaded.
+
+[ "$ACTION" = "ifup" ] || exit 0
+[ -n "$INTERFACE" ] || exit 0
+
+# Only react when the matching interface is configured as our transparent
+# proxy interface.
+LAN_IFACE="$(uci -q get mitmweb.main.transparent_lan_iface)"
+[ "$LAN_IFACE" = "$INTERFACE" ] || exit 0
+
+logger -t mitmweb "hotplug: $INTERFACE came up, reloading service"
+/etc/init.d/mitmweb reload >/dev/null 2>&1 &
+exit 0

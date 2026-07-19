@@ -1,0 +1,15 @@
+/var/log/mitmweb.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    sharedscripts
+    postrotate
+        # mitmweb holds the log fd via procd; copytruncate lets us
+        # rotate without forcing it to reopen. Nothing to do here.
+        :
+    endscript
+}

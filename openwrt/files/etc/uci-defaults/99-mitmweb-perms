@@ -1,0 +1,18 @@
+#!/bin/sh
+# /etc/uci-defaults/99-mitmweb-perms
+# Runs once on first boot after package install. uci-defaults scripts
+# self-delete after they run successfully, so this is safe to leave in the
+# ipk.
+
+# confdir must be readable by the daemon user, but not world-readable,
+# because it holds the CA private key (mitmproxy-ca.pem).
+if [ -d /etc/mitmweb ]; then
+    chown -R mitmweb:mitmweb /etc/mitmweb 2>/dev/null
+    chmod 0750 /etc/mitmweb
+fi
+
+# log file the same.
+[ -f /var/log/mitmweb.log ] || touch /var/log/mitmweb.log
+chown mitmweb:mitmweb /var/log/mitmweb.log
+
+exit 0

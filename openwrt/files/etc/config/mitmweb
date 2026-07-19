@@ -1,0 +1,66 @@
+config mitmweb 'main'
+	# ---- Service lifecycle -------------------------------------------------
+	option enabled '0'
+	option server '1'
+	option confdir '/etc/mitmweb'
+
+	# ---- Proxy mode (MultiValue: regular/socks5/transparent/upstream/
+	#                          reverse/local/wireguard/dns) ------------------
+	list mode 'regular'
+	option regular_listen_port '8080'
+	option socks5_listen_port '1080'
+	option upstream_parent_url ''
+	option reverse_target ''
+	option wireguard_path ''
+	option dns_listen_port '53'
+	option mode_custom_extra ''
+
+	# ---- Global proxy binding (default listen for modes that omit a port) --
+	option listen_host ''
+	option listen_port '8080'
+
+	# ---- mitmweb web UI ---------------------------------------------------
+	# web_host MUST NOT be 127.0.0.1 if you want to reach it from a LAN
+	# client (e.g. to configure via LuCI companion). Override to 0.0.0.0.
+	option web_host '0.0.0.0'
+	option web_port '8081'
+	option web_password ''
+	option web_open_browser '0'
+	option web_debug '0'
+
+	# ---- TLS ---------------------------------------------------------------
+	option ssl_insecure '0'
+	# Trust mitmproxy's CA inside the router itself: copies
+	# mitmproxy-ca-cert.pem into /etc/ssl/certs and runs c_rehash.
+	# Useful for any HTTPS traffic originating from the router (opkg, LuCI).
+	option trust_ca_system '0'
+
+	# ---- Transparent-proxy iptables integration (only effective when
+	#      `mode` contains `transparent`) ----------------------------------
+	option transparent_lan_iface 'br-lan'
+	option transparent_intercept_http '1'
+	option transparent_intercept_https '1'
+	option transparent_http_port '80'
+	option transparent_https_port '443'
+	option transparent_skip_subnets ''
+	option transparent_skip_hosts ''
+
+	# ---- Memory protection (mitmweb UI does not expose these) -------------
+	# view_max_flows: FIFO cap on flows kept in memory. Leave 0 for
+	# unlimited.
+	option view_max_flows '1000'
+	# stream_large_bodies: requests/responses larger than this get streamed
+	# to disk instead of held in memory. Leave empty to disable.
+	option stream_large_bodies '1m'
+	# body_size_limit: refuse any request/response body larger than this.
+	# Leave empty to disable.
+	option body_size_limit '10m'
+	# tcp_timeout: seconds before an idle TCP connection is closed. Default
+	# in upstream mitmproxy is 600; OpenWrt devices generally want 60-120.
+	option tcp_timeout '120'
+
+	# ---- Pass-through escape hatches --------------------------------------
+	# extra_set: one "k=v" per line; each becomes --set k=v on the CLI.
+	option extra_set ''
+	# extra_args: literal argv appended at the very end.
+	option extra_args ''

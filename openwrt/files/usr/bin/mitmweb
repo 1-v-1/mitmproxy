@@ -1,0 +1,12 @@
+#!/bin/sh
+# /usr/bin/mitmweb — wrapper that sets HOME so mitmweb's
+# os.path.expanduser('~/.mitmproxy') resolves to $HOME_MITMWEB (default
+# /etc/mitmweb), where we keep the confdir + CA bundle.
+#
+# All CLI args are forwarded verbatim to the underlying PyInstaller binary.
+# Called by /etc/init.d/mitmweb via procd; do not delete this file even if
+# you run mitmweb by hand, because the binary itself relies on HOME for
+# default confdir resolution.
+
+export HOME="${HOME_MITMWEB:-/etc/mitmweb}"
+exec /usr/lib/mitmweb/mitmweb.bin "$@"

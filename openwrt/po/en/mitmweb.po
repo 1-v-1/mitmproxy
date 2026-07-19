@@ -1,0 +1,95 @@
+# English translation template for luci-app-mitmweb.
+#
+# When msgstr matches msgid, the source string is shown as-is.  Most of the
+# strings visible to the user are already in US English in the Lua sources,
+# so this file is intentionally a no-op — included for build completeness
+# and to make it trivial to override later.
+
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-mitmweb\n"
+"Language: en\n"
+
+# Status tab
+msgid "Status"
+msgstr "Status"
+
+msgid "Loading..."
+msgstr "Loading..."
+
+msgid "RUNNING"
+msgstr "RUNNING"
+
+msgid "STOPPED"
+msgstr "STOPPED"
+
+msgid "Service"
+msgstr "Service"
+
+msgid "Mode"
+msgstr "Mode"
+
+msgid "mitmweb URL"
+msgstr "mitmweb URL"
+
+msgid "Conf dir"
+msgstr "Conf dir"
+
+msgid "Control"
+msgstr "Control"
+
+msgid "Start"
+msgstr "Start"
+
+msgid "Stop"
+msgstr "Stop"
+
+msgid "Restart"
+msgstr "Restart"
+
+msgid "Enable"
+msgstr "Enable"
+
+msgid "Disable"
+msgstr "Disable"
+
+msgid "CA Certificate"
+msgstr "CA Certificate"
+
+msgid "CA not generated yet — start the service to create it."
+msgstr "CA not generated yet — start the service to create it."
+
+msgid "Download PEM"
+msgstr "Download PEM"
+
+msgid "Download P12"
+msgstr "Download P12"
+
+msgid "Download CER"
+msgstr "Download CER"
+
+msgid "Download private key"
+msgstr "Download private key"
+
+msgid "Regenerate CA"
+msgstr "Regenerate CA"
+
+msgid "This will invalidate the previously installed CA. Clients must reinstall the new certificate to continue trusting mitmproxy. Proceed?"
+msgstr "This will invalidate the previously installed CA. Clients must reinstall the new certificate to continue trusting mitmproxy. Proceed?"
+
+msgid "CA validity: 10 years. Per-domain leaf certs: 199 days (auto-renewed)."
+msgstr "CA validity: 10 years. Per-domain leaf certs: 199 days (auto-renewed)."
+
+msgid "Recent log"
+msgstr "Recent log"
+
+# Basic tab
+msgid "MITM Proxy"
+msgstr "MITM Proxy"
+
+msgid "Basic Settings"
+msgstr "Basic Settings"
+
+msgid "Transparent Proxy"
+msgstr "Transparent Proxy"

@@ -1,0 +1,140 @@
+<%+header%>
+
+<style>
+  .mitmweb-grid { display:grid; grid-template-columns:max-content 1fr; gap:.4em 1em; }
+  .mitmweb-grid dt { font-weight:600; }
+  .mitmweb-log {
+    font-family: monospace;
+    background: #1c1c1c;
+    color: #d0d0d0;
+    padding: .6em;
+    max-height: 18em;
+    overflow: auto;
+    white-space: pre;
+    border-radius: 4px;
+  }
+  .mitmweb-pill {
+    display:inline-block;
+    padding:2px 8px;
+    border-radius:10px;
+    font-size:11px;
+    font-weight:600;
+  }
+  .mitmweb-pill.on  { background:#4caf50; color:#fff; }
+  .mitmweb-pill.off { background:#9e9e9e; color:#fff; }
+  .mitmweb-certlinks a { margin-right: 1em; }
+  .mitmweb-actions button { margin-right: .5em; }
+  .mitmweb-ca pre {
+    background:#fafafa;
+    border:1px solid #ddd;
+    padding:.5em;
+    max-height:8em;
+    overflow:auto;
+    white-space:pre-wrap;
+    word-break:break-all;
+  }
+</style>
+
+<h2 name="content"><%:Status%></h2>
+
+<div id="mitmweb-status-root">
+  <p><em><%:Loading...%></em></p>
+</div>
+
+<script type="text/javascript">
+(function () {
+  var root = document.getElementById('mitmweb-status-root');
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function render(s) {
+    var runningPill = s.running
+      ? '<span class="mitmweb-pill on"><%:RUNNING%></span>'
+      : '<span class="mitmweb-pill off"><%:STOPPED%></span>';
+    var pids = (s.pids || []).join(', ') || '-';
+
+    var ca = '<em><%:CA not generated yet — start the service to create it.%></em>';
+    if (s.ca_info && s.ca_info.exists) {
+      ca = '<pre>' + esc(s.ca_info.raw) + '</pre>';
+    }
+
+    var certLinks =
+      '<a href="/admin/services/mitmweb/cert?fmt=pem" class="mitmweb-certlinks"><%:Download PEM%></a>' +
+      '<a href="/admin/services/mitmweb/cert?fmt=p12" class="mitmweb-certlinks"><%:Download P12%></a>' +
+      '<a href="/admin/services/mitmweb/cert?fmt=cer" class="mitmweb-certlinks"><%:Download CER%></a>' +
+      '<a href="/admin/services/mitmweb/cert?fmt=key" class="mitmweb-certlinks"><%:Download private key%></a>';
+
+    var regenBtn =
+      '<button type="button" class="cbi-button cbi-button-red" data-cmd="regen"><%:Regenerate CA%></button>';
+
+    root.innerHTML =
+      '<dl class="mitmweb-grid">' +
+        '<dt><%:Service%></dt><dd>' + runningPill + ' <span style="color:#777">(pids: ' + esc(pids) + ')</span></dd>' +
+        '<dt><%:Mode%></dt><dd>' + esc(s.mode || '-') + '</dd>' +
+        '<dt><%:mitmweb URL%></dt><dd><a href="' + esc(s.web_url) + '" target="_blank">' + esc(s.web_url) + '</a></dd>' +
+        '<dt><%:Conf dir%></dt><dd>' + esc(s.confdir) + '</dd>' +
+      '</dl>' +
+
+      '<h3 style="margin-top:1em"><%:Control%></h3>' +
+      '<p class="mitmweb-actions">' +
+        '<button type="button" class="cbi-button cbi-button-apply" data-cmd="start"><%:Start%></button>' +
+        '<button type="button" class="cbi-button cbi-button-reset" data-cmd="stop"><%:Stop%></button>' +
+        '<button type="button" class="cbi-button cbi-button-reload" data-cmd="restart"><%:Restart%></button>' +
+        '<button type="button" class="cbi-button" data-cmd="enable"><%:Enable%></button>' +
+        '<button type="button" class="cbi-button" data-cmd="disable"><%:Disable%></button>' +
+      '</p>' +
+
+      '<h3 style="margin-top:1em"><%:CA Certificate%></h3>' +
+      '<div class="mitmweb-ca">' + ca + '</div>' +
+      '<p class="mitmweb-certlinks">' + certLinks + ' ' + regenBtn + '</p>' +
+      '<p><small><%:CA validity: 10 years. Per-domain leaf certs: 199 days (auto-renewed).%></small></p>' +
+
+      '<h3 style="margin-top:1em"><%:Recent log%></h3>' +
+      '<pre class="mitmweb-log">' + esc(s.log_tail || '') + '</pre>';
+  }
+
+  function refresh() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/admin/services/mitmweb/status_json', true);
+    xhr.onload = function () {
+      try {
+        var data = JSON.parse(xhr.responseText);
+        render(data);
+      } catch (e) { root.innerHTML = '<em>error: ' + esc(e.message) + '</em>'; }
+    };
+    xhr.onerror = function () { root.innerHTML = '<em>failed to load status</em>'; };
+    xhr.send();
+  }
+
+  function sendCmd(cmd, body) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/admin/services/mitmweb/' + cmd, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.send(body ? JSON.stringify(body) : '{}');
+  }
+
+  root.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t !== root && !t.dataset.cmd) t = t.parentNode;
+    if (!t || !t.dataset.cmd) return;
+    var cmd = t.dataset.cmd;
+    if (cmd === 'regen') {
+      if (!confirm('<%:This will invalidate the previously installed CA. Clients must reinstall the new certificate to continue trusting mitmproxy. Proceed?%>'.replace(/&lt;%/g, '<%').replace(/%\&gt;/g, '%>'))) return;
+      sendCmd('regen_ca');
+    } else {
+      sendCmd('control?cmd=' + encodeURIComponent(cmd));
+    }
+    setTimeout(refresh, 1500);
+  });
+
+  refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+
+<%+footer%>
