@@ -107,7 +107,9 @@ build_inside() {
         bash \
         file \
         cargo \
-        rust >/dev/null
+        rust \
+        curl \
+        ca-certificates >/dev/null
 
     # Install PyInstaller first (small, fast) so we have a known-good pip.
     pip install --no-cache-dir --break-system-packages \
