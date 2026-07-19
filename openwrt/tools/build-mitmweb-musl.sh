@@ -118,14 +118,12 @@ build_inside() {
             return 1
         }
 
-    # Install rustup. The Alpine `rust` package gives us system cargo/rustc
-    # but mitmproxy-linux's build.rs spawns `rustup run nightly cargo build
-    # --target bpfel-unknown-none` to compile an eBPF redirector, and
-    # Alpine does not ship a `rustup` binary.
+    # Install rustup. We need a Rust toolchain so we can build mitmproxy_rs
+    # from source on musl (PyPI ships glibc wheels only).
     if ! command -v rustup >/dev/null 2>&1; then
         echo ">>> installing rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain none --profile minimal \
+            | sh -s -- -y --default-toolchain stable --profile minimal \
                 --no-modify-path
         # rustup installer writes into $CARGO_HOME (default ~/.cargo) and
         # $RUSTUP_HOME (default ~/.rustup). Add to PATH for the rest of
@@ -137,33 +135,54 @@ build_inside() {
             || { echo "rustup install failed" >&2; return 1; }
     fi
 
-    # Install the nightly toolchain + eBPF target. Without nightly Rust the
-    # `bpfel-unknown-none` target is not available, and without the target
-    # the eBPF redirector sub-crate cannot compile.
-    rustup toolchain install nightly --profile minimal --component rust-src || {
-        echo "ERROR: failed to install nightly toolchain" >&2
-        return 1
-    }
-    rustup target add bpfel-unknown-none --toolchain nightly || {
-        echo "ERROR: failed to add bpfel-unknown-none target" >&2
+    # Install mitmproxy from the local source tree WITHOUT pulling in its
+    # transitive deps. We install those explicitly below so we can omit
+    # `mitmproxy-linux`, which on musl cannot be built (it requires the
+    # `bpfel-unknown-none` nightly target that has no prebuilt musl
+    # artifacts, and which we don't need on a router anyway since the
+    # "local" mode it backs is for desktop capture, not gateway use).
+    pip install --no-cache-dir --break-system-packages --no-deps /src || {
+        echo "ERROR: failed to install local /src" >&2
         return 1
     }
 
-    # Install bpf-linker, required by mitmproxy-linux-ebpf's build.rs
-    # (used by mitmproxy's "local" mode that runs an eBPF redirector).
-    cargo install --locked bpf-linker --root /tmp/cargo-tools || {
-        echo "ERROR: failed to install bpf-linker (needed by mitmproxy-linux-ebpf)" >&2
+    # Install mitmproxy_rs separately, also --no-deps, so its Linux
+    # conditional `Requires-Dist: mitmproxy-linux` is NOT honoured. The
+    # Rust extension itself builds fine on musl; only the redirector
+    # binary that comes from mitmproxy-linux doesn't.
+    pip install --no-cache-dir --break-system-packages --no-deps mitmproxy_rs || {
+        echo "ERROR: failed to install mitmproxy_rs" >&2
         return 1
     }
-    export PATH="/tmp/cargo-tools/bin:${PATH}"
-    command -v bpf-linker || { echo "bpf-linker still not on PATH" >&2; return 1; }
 
-    # Install the local mitmproxy source tree. This compiles mitmproxy_rs
-    # and friends from source via maturin.
-    pip install --no-cache-dir --break-system-packages /src || {
-            echo "ERROR: failed to install local /src (rust native deps failed?)" >&2
-            return 1
-        }
+    # Install every other runtime dep with normal resolution. None of them
+    # transitively depend on mitmproxy-linux, so they all install cleanly.
+    pip install --no-cache-dir --break-system-packages \
+        aioquic argon2-cffi asgiref bcrypt brotli certifi \
+        cryptography flask h11 h2 hyperframe kaitaistruct ldap3 pyopenssl \
+        pyparsing pyperclip publicsuffix2 "ruamel.yaml" sortedcontainers \
+        tornado typing-extensions urwid wsproto zstandard || {
+        echo "ERROR: failed to install runtime deps" >&2
+        return 1
+    }
+
+    # Patch the upstream PyInstaller hook that bundles mitmproxy-linux's
+    # redirector binary. We don't ship that binary, so the hook must
+    # declare no extra files — otherwise PyInstaller errors out trying
+    # to include a path that doesn't exist.
+    #
+    # Note: `mitmproxy_linux.executable_path()` still works (it returns
+    # a missing path), and mitmproxy_rs.local.LocalRedirector's
+    # unavailable_reason() will return a string explaining the redirector
+    # is missing — which the mitmweb UI surfaces in its mode selector.
+    site_packages="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+    cat > "${site_packages}/mitmproxy_rs/_pyinstaller/hook-mitmproxy_linux.py" <<'EOF'
+# Overridden by openwrt/tools/build-mitmweb-musl.sh: skip the eBPF
+# redirector binary that the upstream hook tries to bundle, because
+# the musl build cannot produce it (no prebuilt bpfel-unknown-none
+# target for nightly on musl).
+binaries = []
+EOF
 
     # Build a onefile mitmweb binary, strip debug symbols.
     pyinstaller \
