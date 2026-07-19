@@ -116,10 +116,39 @@ build_inside() {
             return 1
         }
 
+    # Install rustup. The Alpine `rust` package gives us system cargo/rustc
+    # but mitmproxy-linux's build.rs spawns `rustup run nightly cargo build
+    # --target bpfel-unknown-none` to compile an eBPF redirector, and
+    # Alpine does not ship a `rustup` binary.
+    if ! command -v rustup >/dev/null 2>&1; then
+        echo ">>> installing rustup"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain none --profile minimal \
+                --no-modify-path
+        # rustup installer writes into $CARGO_HOME (default ~/.cargo) and
+        # $RUSTUP_HOME (default ~/.rustup). Add to PATH for the rest of
+        # the build.
+        export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+        export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+        export PATH="$CARGO_HOME/bin:$PATH"
+        command -v rustup >/dev/null 2>&1 \
+            || { echo "rustup install failed" >&2; return 1; }
+    fi
+
+    # Install the nightly toolchain + eBPF target. Without nightly Rust the
+    # `bpfel-unknown-none` target is not available, and without the target
+    # the eBPF redirector sub-crate cannot compile.
+    rustup toolchain install nightly --profile minimal --component rust-src || {
+        echo "ERROR: failed to install nightly toolchain" >&2
+        return 1
+    }
+    rustup target add bpfel-unknown-none --toolchain nightly || {
+        echo "ERROR: failed to add bpfel-unknown-none target" >&2
+        return 1
+    }
+
     # Install bpf-linker, required by mitmproxy-linux-ebpf's build.rs
     # (used by mitmproxy's "local" mode that runs an eBPF redirector).
-    # Without this, pip install /src fails with:
-    #   "Failed to find `bpf-linker` executable on PATH".
     cargo install --locked bpf-linker --root /tmp/cargo-tools || {
         echo "ERROR: failed to install bpf-linker (needed by mitmproxy-linux-ebpf)" >&2
         return 1
