@@ -836,3 +836,29 @@ def test_max_flows_bulk_eviction_emits_refresh():
         assert v.store_count() == 10
         # 90 flows evicted in bulk -> one view_refresh + one store_refresh.
         assert refresh_events == ["view", "store"]
+
+
+def test_max_flows_evict_oldest_zero_is_noop():
+    """_evict_oldest(0) / _evict_oldest(-1) must early-return without touching the store."""
+    v = view.View()
+    with taddons.context(v) as tctx:
+        flows = [tft(start=i) for i in range(3)]
+        v.add(flows)
+        assert v.store_count() == 3
+        v._evict_oldest(0)
+        assert v.store_count() == 3
+        v._evict_oldest(-1)
+        assert v.store_count() == 3
+
+
+def test_max_flows_add_skips_when_cap_zero_post_validation_bypass():
+    """Defensive branch in add(): if _max_flows ends up 0 (bypassing
+    configure() validation), the second `if` after eviction still matches
+    and we break out of the loop without inserting the flow."""
+    v = view.View()
+    with taddons.context(v) as tctx:
+        # Bypass the cap>=1 validator in configure() by poking the attribute
+        # directly. The defensive branch in add() then kicks in.
+        v._max_flows = 0
+        v.add([tft(start=1), tft(start=2)])
+        assert v.store_count() == 0
