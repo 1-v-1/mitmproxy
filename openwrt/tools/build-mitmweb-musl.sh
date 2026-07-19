@@ -105,7 +105,9 @@ build_inside() {
         cmake \
         pkgconfig \
         bash \
-        file >/dev/null
+        file \
+        cargo \
+        rust >/dev/null
 
     # Install PyInstaller first (small, fast) so we have a known-good pip.
     pip install --no-cache-dir --break-system-packages \
@@ -113,6 +115,17 @@ build_inside() {
             echo "ERROR: failed to install pyinstaller $PYINSTALLER_VERSION" >&2
             return 1
         }
+
+    # Install bpf-linker, required by mitmproxy-linux-ebpf's build.rs
+    # (used by mitmproxy's "local" mode that runs an eBPF redirector).
+    # Without this, pip install /src fails with:
+    #   "Failed to find `bpf-linker` executable on PATH".
+    cargo install --locked bpf-linker --root /tmp/cargo-tools || {
+        echo "ERROR: failed to install bpf-linker (needed by mitmproxy-linux-ebpf)" >&2
+        return 1
+    }
+    export PATH="/tmp/cargo-tools/bin:${PATH}"
+    command -v bpf-linker || { echo "bpf-linker still not on PATH" >&2; return 1; }
 
     # Install the local mitmproxy source tree. This compiles mitmproxy_rs
     # and friends from source via maturin.
