@@ -163,6 +163,8 @@ class View(collections.abc.Sequence):
         self.order_key: _OrderKey = self.default_order
         self.order_reversed = False
         self.focus_follow = False
+        # Cached view_max_flows option; configure() keeps it in sync.
+        self._max_flows: Optional[int] = None
 
         self._view = sortedcontainers.SortedListWithKey(key=self.order_key)
 
@@ -202,6 +204,14 @@ class View(collections.abc.Sequence):
         )
         loader.add_option(
             "console_focus_follow", bool, False, "Focus follows new flows."
+        )
+        loader.add_option(
+            "view_max_flows",
+            Optional[int],
+            None,
+            "Limit the number of flows kept in memory. Oldest flows are "
+            "evicted (FIFO) when the cap is exceeded or when the cap is "
+            "lowered at runtime. Set to None to keep all flows.",
         )
 
     def store_count(self):
@@ -510,17 +520,69 @@ class View(collections.abc.Sequence):
 
     def add(self, flows: Sequence[mitmproxy.flow.Flow]) -> None:
         """
-        Adds a flow to the state. If the flow already exists, it is
-        ignored.
+        Adds flows to the state. If a flow already exists, it is ignored.
+        When view_max_flows is configured, evict the oldest flows first so
+        the cap is honoured (FIFO).
         """
         for f in flows:
-            if f.id not in self._store:
-                self._store[f.id] = f
-                if self.filter(f):
-                    self._base_add(f)
-                    if self.focus_follow:
-                        self.focus.flow = f
-                    self.sig_view_add.send(flow=f)
+            if f.id in self._store:
+                continue
+            if (
+                self._max_flows is not None
+                and self.store_count() >= self._max_flows
+            ):
+                # Make room by evicting the oldest.
+                self._evict_oldest(1)
+            if (
+                self._max_flows is not None
+                and self.store_count() >= self._max_flows
+            ):
+                # Cannot make any more room (e.g. cap=0 edge case that
+                # validation rejects). Drop the remaining new flows.
+                break
+            self._store[f.id] = f
+            if self.filter(f):
+                self._base_add(f)
+                if self.focus_follow:
+                    self.focus.flow = f
+                self.sig_view_add.send(flow=f)
+
+    def _evict_oldest(self, count: int) -> None:
+        """
+        Evict `count` oldest entries from `_store` (FIFO by insertion order).
+        Mirrors the cleanup sequence in View.remove(): kill, view_remove,
+        store_remove. Marked flows are NOT protected.
+        """
+        if count <= 0:
+            return
+        oldest_ids = list(self._store.keys())[:count]
+        # Bulk eviction: emit a single refresh pair instead of N per-flow
+        # signals, matching the View.clear() precedent.
+        if count > 50:
+            for fid in oldest_ids:
+                f = self._store[fid]
+                if f.killable:
+                    f.kill()
+                if f in self._view:
+                    self._view.remove(f)
+                del self._store[fid]
+                if fid in self.settings._values:
+                    del self.settings._values[fid]
+            self.sig_view_refresh.send()
+            self.sig_store_refresh.send()
+            return
+        # Small bulk: per-flow signals so Focus / Settings / web master
+        # react naturally.
+        for fid in oldest_ids:
+            f = self._store[fid]
+            if f.killable:
+                f.kill()
+            if f in self._view:
+                idx = self._view.index(f)
+                self._view.remove(f)
+                self.sig_view_remove.send(flow=f, index=idx)
+            del self._store[fid]
+            self.sig_store_remove.send(flow=f)
 
     def get_by_id(self, flow_id: str) -> mitmproxy.flow.Flow | None:
         """
@@ -579,6 +641,15 @@ class View(collections.abc.Sequence):
             self.set_reversed(ctx.options.view_order_reversed)
         if "console_focus_follow" in updated:
             self.focus_follow = ctx.options.console_focus_follow
+        if "view_max_flows" in updated:
+            cap = ctx.options.view_max_flows
+            if cap is not None and cap < 1:
+                raise exceptions.OptionsError(
+                    f"view_max_flows must be >= 1 or None (got {cap!r})"
+                )
+            self._max_flows = cap
+            if cap is not None and self.store_count() > cap:
+                self._evict_oldest(self.store_count() - cap)
 
     def requestheaders(self, f):
         self.add([f])

@@ -696,3 +696,143 @@ def test_configure():
 )
 def test_marker(marker, expected):
     assert render_marker(marker) == expected
+
+
+# ---------------------------------------------------------------------------
+# view_max_flows
+# ---------------------------------------------------------------------------
+
+
+def test_max_flows_default_unlimited():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        assert tctx.options.view_max_flows is None
+        assert v._max_flows is None
+        v.add([tft(start=i) for i in range(50)])
+        assert v.store_count() == 50
+
+
+def test_max_flows_validation():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        with pytest.raises(exceptions.OptionsError):
+            tctx.configure(v, view_max_flows=0)
+        with pytest.raises(exceptions.OptionsError):
+            tctx.configure(v, view_max_flows=-1)
+        tctx.configure(v, view_max_flows=None)
+        assert v._max_flows is None
+
+
+def test_max_flows_evicts_oldest_on_add():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        tctx.configure(v, view_max_flows=3)
+        flows = [tft(start=i) for i in range(5)]
+        v.add(flows)
+        surviving = {f.id for f in v._store.values()}
+        assert surviving == {flows[2].id, flows[3].id, flows[4].id}
+        assert v.store_count() == 3
+        assert len(v) == 3
+
+
+def test_max_flows_no_evict_under_cap():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        tctx.configure(v, view_max_flows=10)
+        flows = [tft(start=i) for i in range(5)]
+        v.add(flows)
+        assert v.store_count() == 5
+
+
+def test_max_flows_signal_order():
+    """Small eviction emits view_remove THEN store_remove per flow."""
+    v = view.View()
+    events: list[tuple[str, str]] = []
+
+    def on_view_remove(flow, index):
+        events.append(("view_remove", flow.id))
+
+    def on_store_remove(flow):
+        events.append(("store_remove", flow.id))
+
+    v.sig_view_remove.connect(on_view_remove)
+    v.sig_store_remove.connect(on_store_remove)
+
+    with taddons.context(v) as tctx:
+        tctx.configure(v, view_max_flows=2)
+        a, b, c = tft(start=1), tft(start=2), tft(start=3)
+        v.add([a, b, c])
+
+    a_events = [e for e in events if e[1] == a.id]
+    assert a_events == [("view_remove", a.id), ("store_remove", a.id)]
+
+
+def test_max_flows_cap_lowered_runtime_evicts():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        flows = [tft(start=i) for i in range(5)]
+        v.add(flows)
+        assert v.store_count() == 5
+        tctx.configure(v, view_max_flows=2)
+        assert v.store_count() == 2
+        surviving = [f.id for f in v._store.values()]
+        assert surviving == [flows[3].id, flows[4].id]
+
+
+def test_max_flows_marked_evicted():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        tctx.configure(v, view_max_flows=1)
+        old = tft(start=1)
+        old.marked = True
+        new = tft(start=2)
+        v.add([old, new])
+        assert v.get_by_id(old.id) is None
+        assert v.get_by_id(new.id) is new
+
+
+def test_max_flows_set_to_none_restores_unlimited():
+    v = view.View()
+    with taddons.context(v) as tctx:
+        tctx.configure(v, view_max_flows=2)
+        v.add([tft(start=i) for i in range(5)])
+        assert v.store_count() == 2
+        tctx.configure(v, view_max_flows=None)
+        v.add([tft(start=i) for i in range(10)])
+        assert v.store_count() == 12
+
+
+def test_max_flows_batch_larger_than_cap():
+    """Single add() with more new flows than cap keeps newest."""
+    v = view.View()
+    with taddons.context(v) as tctx:
+        tctx.configure(v, view_max_flows=3)
+        flows = [tft(start=i) for i in range(10)]
+        v.add(flows)
+        assert v.store_count() == 3
+        surviving = {f.id for f in v._store.values()}
+        assert surviving == {flows[7].id, flows[8].id, flows[9].id}
+
+
+def test_max_flows_bulk_eviction_emits_refresh():
+    """When more than 50 flows are evicted at once, signals collapse to refresh."""
+    v = view.View()
+    refresh_events: list[str] = []
+
+    def on_view_refresh():
+        refresh_events.append("view")
+
+    def on_store_refresh():
+        refresh_events.append("store")
+
+    v.sig_view_refresh.connect(on_view_refresh)
+    v.sig_store_refresh.connect(on_store_refresh)
+
+    with taddons.context(v) as tctx:
+        flows = [tft(start=i) for i in range(100)]
+        v.add(flows)
+        assert v.store_count() == 100
+        tctx.configure(v, view_max_flows=10)
+        assert v.store_count() == 10
+        # 90 flows evicted in bulk -> one view_refresh + one store_refresh.
+        assert refresh_events == ["view", "store"]

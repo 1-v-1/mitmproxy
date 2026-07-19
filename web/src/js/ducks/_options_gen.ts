@@ -92,6 +92,7 @@ export interface OptionsState {
     upstream_cert: boolean;
     validate_inbound_headers: boolean;
     view_filter: string | undefined;
+    view_max_flows: number | undefined;
     view_order: string;
     view_order_reversed: boolean;
     web_columns: string[];
@@ -199,6 +200,7 @@ export const defaultState: OptionsState = {
     upstream_cert: true,
     validate_inbound_headers: true,
     view_filter: undefined,
+    view_max_flows: undefined,
     view_order: "time",
     view_order_reversed: false,
     web_columns: ["tls", "icon", "path", "method", "status", "size", "time"],
