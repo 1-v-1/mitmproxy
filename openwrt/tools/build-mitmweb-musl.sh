@@ -249,8 +249,11 @@ fi
 
 mv "$OUT/mitmweb.bin" "$binary_path"
 
-echo ">>> Quick smoke test"
-"$binary_path" --version
+# Note: do NOT execute the binary here. It is dynamically linked against
+# musl libc, which only exists on Alpine / OpenWrt — on a glibc runner
+# (the typical CI image) execution fails with
+# "ld.so: bad ELF interpreter" and exits 77. PyInstaller having exited 0
+# above is sufficient evidence the ELF was produced successfully.
 
 echo ">>> Producing tarball"
 tmp_tar_dir="$(mktemp -d)"
