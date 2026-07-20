@@ -183,9 +183,18 @@ jobs:
         run: |
           set -euo pipefail
           cd sdk
-          # No feeds to install (we ship everything in-tree). The -i just
-          # refreshes the index; we ignore its output.
-          ./scripts/feeds update -i 2>/dev/null || true
+          # Install all feeds (packages, luci, ...) so dependency lookups
+          # for iptables-nft, kmod-nf-redirect, luci-base etc. succeed.
+          ./scripts/feeds update
+          ./scripts/feeds install -a
+
+          # Pre-generate a .config with all defaults. Without this, the
+          # first make run tries to open menuconfig interactively, which
+          # fails in a non-TTY CI environment with "Error opening
+          # terminal: unknown".
+          make defconfig
+
+          # Now build our package.
           make package/mitmweb-openwrt/compile V=s \
               MITMWEB_ARCH_HINT=${{ matrix.mitmweb_arch }} \
               MITMWEB_VERSION=${{ steps.ver.outputs.version }}
