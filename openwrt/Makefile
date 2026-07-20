@@ -98,7 +98,7 @@ define Build/Compile
 		echo "" >&2; \
 		echo "ERROR: $(TARBALL_PATH) not found." >&2; \
 		echo "       Build it first:" >&2; \
-		echo "         ./tools/build-mitmweb-musl.sh --arch=$(MITMWEB_ARCH_HINT) --tag=v$(PKG_VERSION)" >&2; \
+		echo "         ./tools/build-mitmweb-musl.sh --arch=$(MITMWEB_ARCH_HINT) --tag=$(PKG_VERSION)" >&2; \
 		echo "       then copy the resulting .tar.xz into your SDK's dl/ directory." >&2; \
 		echo "       See openwrt/README.md for full instructions." >&2; \
 		exit 1; \

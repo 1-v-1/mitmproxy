@@ -216,8 +216,17 @@ jobs:
           # log access).
           echo "=== package/mitmweb-openwrt tree ==="
           find package/mitmweb-openwrt -maxdepth 2 | sort
-          echo "=== dl tarball ==="
-          ls -la dl/ | grep mitmweb || echo "(no mitmweb tarball in dl/)"
+          # Compute the exact tarball name the Makefile's Build/Compile will
+          # look for. PKG_VERSION := $(MITMWEB_VERSION) when MITMWEB_VERSION
+          # is set, so this matches `TARBALL_NAME` in openwrt/Makefile.
+          expected="mitmweb-linux-musl-${{ matrix.mitmweb_arch }}-${{ steps.ver.outputs.version }}.tar.xz"
+          echo "=== dl tarball (expected: $expected) ==="
+          ls -la dl/ 2>/dev/null | grep -E 'mitmweb|^total' || echo "(dl/ empty or absent)"
+          if [ -f "dl/$expected" ]; then
+              echo "OK: dl/$expected is present"
+          else
+              echo "MISSING: dl/$expected"
+          fi
           echo "=== feeds we installed ==="
           ls feeds/ 2>/dev/null | head
           echo "=== checking iptables/luci packages exist ==="
