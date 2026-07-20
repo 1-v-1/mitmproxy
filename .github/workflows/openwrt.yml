@@ -149,11 +149,14 @@ jobs:
       - name: Download OpenWrt SDK
         run: |
           set -euo pipefail
-          # OpenWrt 24.10 publishes SDKs as .tar.zst (zstd). Modern tar
-          # supports zstd via `-I zstd` (or `--use-compress-program`).
+          # OpenWrt 24.10 publishes SDKs as .tar.zst. Ubuntu runners don't
+          # necessarily ship tar with zstd support compiled in, and
+          # `tar --use-compress-program=zstd` exits 22 ("Cannot exec")
+          # if the binary isn't found. So decompress explicitly first.
           curl -fL --retry 3 -o sdk.tar.zst "${{ steps.sdkurl.outputs.sdk_url }}"
+          zstd -d -o sdk.tar sdk.tar.zst
           mkdir -p sdk
-          tar --use-compress-program=zstd -xf sdk.tar.zst --strip-components=1 -C sdk
+          tar -xf sdk.tar --strip-components=1 -C sdk
 
       - name: Stage this package and the musl tarball
         run: |
