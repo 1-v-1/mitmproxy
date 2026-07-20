@@ -181,8 +181,16 @@ jobs:
           # is what we'll see in `make package/.../...` paths.
           cp -r openwrt "sdk/package/mitmweb-openwrt"
           # Place the musl tarball in dl/; $(DL_DIR) defaults to sdk/dl/.
+          #
+          # Caveat: `actions/download-artifact@v4` preserves the upload-side
+          # directory structure, so the tarball lands at
+          # `dl_in/release/dist/<name>.tar.xz` (matching the upload path),
+          # not `dl_in/<name>.tar.xz`. A `dl_in/*.tar.xz` glob would only
+          # match a flat layout and silently fail to copy anything, leaving
+          # sdk/dl/ empty and the Makefile's [ -f $(TARBALL_PATH) ] check
+          # to fire later. Use `find` to walk any subdir shape.
           mkdir -p sdk/dl
-          cp dl_in/*.tar.xz sdk/dl/
+          find dl_in -name '*.tar.xz' -type f -exec cp -v {} sdk/dl/ \;
           ls -la sdk/dl/
 
       - name: Resolve mitmproxy version (for the SDK Makefile)
@@ -227,6 +235,13 @@ jobs:
           else
               echo "MISSING: dl/$expected"
           fi
+          # Also dump what came out of the download-artifact step, in case
+          # the upstream layout ever shifts again. Look one level above too
+          # since actions/download-artifact@v4 recreates the upload-time
+          # directory under the download path.
+          echo "=== what we downloaded from upstream (dl_in/) ==="
+          find ../dl_in -maxdepth 4 -type f 2>/dev/null | sort \
+              || echo "(dl_in/ not found at ../dl_in — workflow layout changed?)"
           echo "=== feeds we installed ==="
           ls feeds/ 2>/dev/null | head
           echo "=== checking iptables/luci packages exist ==="
