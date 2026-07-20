@@ -69,8 +69,19 @@ define Package/mitmweb
   CATEGORY:=Network
   TITLE:=mitmweb (man-in-the-middle proxy web UI)
   URL:=https://mitmproxy.org/
-  DEPENDS:=+iptables-nft +kmod-nf-nat +kmod-nf-redirect +libc +libopenssl +ca-bundle +libpthread
+  DEPENDS:=+iptables-nft +kmod-nf-nat +kmod-ipt-nat +libc +libopenssl +zlib +ca-bundle +libpthread
   USERID:=mitmweb=472:mitmweb=472
+endef
+
+# OpenWrt's musl libc package installs /lib/libc.so + /lib/ld-musl-<arch>.so.1
+# (a symlink to libc.so). It does NOT ship a file literally named
+# libc.musl-<arch>.so.1, so the libc package's auto-generated .provides list
+# omits that SONAME. musl's loader handles this at runtime (it falls back to
+# libc.so when libc.musl-<arch>.so.1 isn't found), but `gen-dependencies.sh`
+# requires the dep to be declared by some package we depend on. Declare it as
+# an extra_provides of mitmweb so the dep check passes.
+define Package/mitmweb/extra_provides
+	echo libc.musl-x86_64.so.1
 endef
 
 define Package/mitmweb/description

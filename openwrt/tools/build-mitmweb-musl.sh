@@ -109,7 +109,8 @@ build_inside() {
         cargo \
         rust \
         curl \
-        ca-certificates >/dev/null
+        ca-certificates \
+        xz >/dev/null
 
     # Install PyInstaller first (small, fast) so we have a known-good pip.
     pip install --no-cache-dir --break-system-packages \
@@ -260,8 +261,12 @@ tmp_tar_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_tar_dir"' EXIT
 mkdir -p "$tmp_tar_dir/mitmweb-linux-musl-$ARCH"
 cp "$binary_path" "$tmp_tar_dir/mitmweb-linux-musl-$ARCH/mitmweb.bin"
-(cd "$tmp_tar_dir" && sha256sum "mitmweb-linux-musl-$ARCH/mitmweb.bin" > SHA256SUMS) || true
-(cd "$tmp_tar_dir" && tar -cJf "$tarball_path" "mitmweb-linux-musl-$ARCH" SHA256SUMS) || true
+(cd "$tmp_tar_dir" && sha256sum "mitmweb-linux-musl-$ARCH/mitmweb.bin" > SHA256SUMS)
+# Note: don't use `tar -cJf`. busybox tar shells out to `xz` and we've seen
+# it fail with "can't execute 'xz'" even when `xz` is on PATH (likely a
+# quoting/environment issue when invoked via `sh -c "$(declare -f ...)"`).
+# Pipe through xz explicitly instead.
+(cd "$tmp_tar_dir" && tar -cf - "mitmweb-linux-musl-$ARCH" SHA256SUMS | xz -T0 > "$tarball_path")
 
 echo ">>> Done."
 echo "    binary:   $binary_path"
