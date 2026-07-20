@@ -221,15 +221,17 @@ jobs:
 
           # Diagnostic dump so we can see what's actually present when
           # the build runs (useful for debugging failed CI runs without
-          # log access).
+          # log access). Each probe is suffixed with `|| true` / `|| echo`
+          # because set -euo pipefail would otherwise kill the script on
+          # the first missing dir, hiding the actual failure further down.
           echo "=== package/mitmweb-openwrt tree ==="
-          find package/mitmweb-openwrt -maxdepth 2 | sort
+          find package/mitmweb-openwrt -maxdepth 2 2>/dev/null | sort || echo "(no tree)"
           # Compute the exact tarball name the Makefile's Build/Compile will
           # look for. PKG_VERSION := $(MITMWEB_VERSION) when MITMWEB_VERSION
           # is set, so this matches `TARBALL_NAME` in openwrt/Makefile.
           expected="mitmweb-linux-musl-${{ matrix.mitmweb_arch }}-${{ steps.ver.outputs.version }}.tar.xz"
           echo "=== dl tarball (expected: $expected) ==="
-          ls -la dl/ 2>/dev/null | grep -E 'mitmweb|^total' || echo "(dl/ empty or absent)"
+          (ls -la dl/ 2>/dev/null | grep -E 'mitmweb|^total' || echo "(dl/ missing/empty)") || true
           if [ -f "dl/$expected" ]; then
               echo "OK: dl/$expected is present"
           else
@@ -240,15 +242,15 @@ jobs:
           # since actions/download-artifact@v4 recreates the upload-time
           # directory under the download path.
           echo "=== what we downloaded from upstream (dl_in/) ==="
-          find ../dl_in -maxdepth 4 -type f 2>/dev/null | sort \
-              || echo "(dl_in/ not found at ../dl_in — workflow layout changed?)"
+          (find ../dl_in -maxdepth 4 -type f 2>/dev/null | sort \
+              || echo "(dl_in/ missing or unreadable)") || true
           echo "=== feeds we installed ==="
-          ls feeds/ 2>/dev/null | head
+          (ls feeds/ 2>/dev/null | head) || echo "(no feeds/)"
           echo "=== checking iptables/luci packages exist ==="
-          ls package/feeds/packages/iptables-nft 2>/dev/null && echo "iptables-nft: present"
-          ls package/feeds/luci/luci-base 2>/dev/null && echo "luci-base: present"
-          ls package/feeds/packages/ca-bundle 2>/dev/null && echo "ca-bundle: present"
-          ls package/feeds/packages/libopenssl 2>/dev/null && echo "libopenssl: present"
+          if [ -d package/feeds/packages/iptables-nft ]; then echo "iptables-nft: present"; else echo "iptables-nft: MISSING"; fi
+          if [ -d package/feeds/luci/luci-base ]; then echo "luci-base: present"; else echo "luci-base: MISSING"; fi
+          if [ -d package/feeds/packages/ca-bundle ]; then echo "ca-bundle: present"; else echo "ca-bundle: MISSING"; fi
+          if [ -d package/feeds/packages/libopenssl ]; then echo "libopenssl: present"; else echo "libopenssl: MISSING"; fi
 
           # Now build our package.
           make package/mitmweb-openwrt/compile V=s \
