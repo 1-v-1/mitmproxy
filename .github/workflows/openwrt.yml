@@ -116,10 +116,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/x86/64/openwrt-sdk-24.10.0-x86_64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/x86/generic/openwrt-sdk-24.10.0-x86-generic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
             profile: x86_64
             mitmweb_arch: x86_64
-          - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/armsr/armv8/openwrt-sdk-24.10.0-armsr-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/armsr/armv8/openwrt-sdk-24.10.0-armsr-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst
             profile: armsr-armv8
             mitmweb_arch: aarch64
 
@@ -149,9 +149,11 @@ jobs:
       - name: Download OpenWrt SDK
         run: |
           set -euo pipefail
-          curl -fL --retry 3 -o sdk.tar.xz "${{ steps.sdkurl.outputs.sdk_url }}"
+          # OpenWrt 24.10 publishes SDKs as .tar.zst (zstd). Modern tar
+          # supports zstd via `-I zstd` (or `--use-compress-program`).
+          curl -fL --retry 3 -o sdk.tar.zst "${{ steps.sdkurl.outputs.sdk_url }}"
           mkdir -p sdk
-          tar -xJf sdk.tar.xz --strip-components=1 -C sdk
+          tar --use-compress-program=zstd -xf sdk.tar.zst --strip-components=1 -C sdk
 
       - name: Stage this package and the musl tarball
         run: |
