@@ -59,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [x86_64]   # aarch64 builds via QEMU emulation take >1h; see openwrt-package matrix for the same comment
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -119,9 +119,14 @@ jobs:
           - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/x86/generic/openwrt-sdk-24.10.0-x86-generic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
             profile: x86_64
             mitmweb_arch: x86_64
-          - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/armsr/armv8/openwrt-sdk-24.10.0-armsr-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst
-            profile: armsr-armv8
-            mitmweb_arch: aarch64
+          # aarch64 musl build takes >1h on GitHub Actions runners because
+          # Docker's QEMU emulation of linux/arm64 is ~10x slower than
+          # native x86_64 build. Disabled until we either find a way to
+          # build natively (e.g. arm64 self-hosted runner) or speed up
+          # the cross-compile.
+          # - sdk_url: https://downloads.openwrt.org/releases/24.10.0/targets/armsr/armv8/openwrt-sdk-24.10.0-armsr-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+          #   profile: armsr-armv8
+          #   mitmweb_arch: aarch64
 
     steps:
       - name: Checkout
@@ -193,6 +198,21 @@ jobs:
           # fails in a non-TTY CI environment with "Error opening
           # terminal: unknown".
           make defconfig
+
+          # Diagnostic dump so we can see what's actually present when
+          # the build runs (useful for debugging failed CI runs without
+          # log access).
+          echo "=== package/mitmweb-openwrt tree ==="
+          find package/mitmweb-openwrt -maxdepth 2 | sort
+          echo "=== dl tarball ==="
+          ls -la dl/ | grep mitmweb || echo "(no mitmweb tarball in dl/)"
+          echo "=== feeds we installed ==="
+          ls feeds/ 2>/dev/null | head
+          echo "=== checking iptables/luci packages exist ==="
+          ls package/feeds/packages/iptables-nft 2>/dev/null && echo "iptables-nft: present"
+          ls package/feeds/luci/luci-base 2>/dev/null && echo "luci-base: present"
+          ls package/feeds/packages/ca-bundle 2>/dev/null && echo "ca-bundle: present"
+          ls package/feeds/packages/libopenssl 2>/dev/null && echo "libopenssl: present"
 
           # Now build our package.
           make package/mitmweb-openwrt/compile V=s \
