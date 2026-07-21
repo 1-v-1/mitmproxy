@@ -281,6 +281,24 @@ jobs:
           # terminal: unknown".
           make defconfig
 
+          # Disable the Lua binding of liblucihttp. LuCI in 24.10 runs
+          # through uhttpd + ucode (see luci-base's DEPENDS), so the
+          # mitmweb companion doesn't need liblucihttp-lua. liblucihttp-
+          # lua hard-requires liblua (C library) whose header path /
+          # install order in the SDK is fragile; the ucode binding is
+          # all mitmweb+luci actually consume.
+          #
+          # lucihttp's Makefile uses '$(if X,ON,OFF)' for -DBUILD_LUA,
+          # which evaluates to ON whenever CONFIG_PACKAGE_liblucihttp-
+          # lua is non-empty (=m is enough to gate it on). Sed the cmake
+          # argument to a hard OFF before any package tries to compile.
+          # (Workaround pattern lifted from Gatesentry's
+          # .github/workflows/build-openwrt.yml, which has the same
+          # problem under the same Ubuntu runner image.)
+          sed -i 's/^[[:space:]]*-DBUILD_LUA=\$(if CONFIG_PACKAGE_liblucihttp-lua,ON,OFF)/	-DBUILD_LUA=OFF/' \
+              feeds/luci/contrib/package/lucihttp/Makefile
+          grep -n "BUILD_LUA" feeds/luci/contrib/package/lucihttp/Makefile
+
           # Diagnostic dump so we can see what's actually present when
           # the build runs (useful for debugging failed CI runs without
           # log access). Each probe is suffixed with `|| true` / `|| echo`
@@ -369,6 +387,63 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: 'mitmweb OpenWrt packages (${{ github.ref_name }})'
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-asset/*.ipk
+            release-asset/SHA256SUMS
+
+  # ---------------------------------------------------------------------------
+  # 4. On every push to main (not a v* tag), publish the same ipks to a
+  #    rolling "nightly" pre-release instead of a versioned one. This gives
+  #    a stable download link for the latest main-branch build without
+  #    touching semantic version tags — those are reserved for real
+  #    releases (see publish-on-release above). The 'nightly' git tag is
+  #    force-moved to the current commit on each run, mirroring what a
+  #    tag push does but without disturbing v* tag history.
+  # ---------------------------------------------------------------------------
+  publish-nightly:
+    name: publish (nightly)
+    needs: openwrt-package
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Force-move the 'nightly' tag to this commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly
+          git push origin nightly --force
+
+      - name: Download all ipk artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Move ipks into a single release folder
+        run: |
+          mkdir -p release-asset
+          find dist -name '*.ipk' -exec cp -v {} release-asset/ \;
+          ls -la release-asset/
+
+      - name: Compute sha256sums
+        run: |
+          (cd release-asset && sha256sum *.ipk > SHA256SUMS)
+          cat release-asset/SHA256SUMS
+
+      - name: Create/update the nightly pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: 'mitmweb OpenWrt packages (nightly)'
+          prerelease: true
+          body: |
+            Automatically rebuilt from the latest `main` (${{ github.sha }}).
+            This is not a versioned release — for those, see the `v*` tags.
           fail_on_unmatched_files: true
           files: |
             release-asset/*.ipk
