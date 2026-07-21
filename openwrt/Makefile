@@ -114,17 +114,6 @@ define Build/Compile
 	# the install step silently finds nothing, producing a ~32KB ipk
 	# that contains everything except the ELF.)
 	$(TAR) -xJf $(TARBALL_PATH) --strip-components=1 -C $(PKG_BUILD_DIR)
-	# Debug: surface the file sizes we ended up with. Diagnosing a
-	# recurring case where the ipk comes out ~65KB (just bootloader
-	# stub) while the upstream tarball is ~27MB — printing the on-disk
-	# sizes here lets us see which side the discrepancy is on.
-	echo "=== post-extract: $(PKG_BUILD_DIR) contents ==="
-	ls -la "$(PKG_BUILD_DIR)/"
-	if [ -f "$(PKG_BUILD_DIR)/mitmweb.bin" ]; then
-		echo "=== mitmweb.bin size: $$(stat -c %s $(PKG_BUILD_DIR)/mitmweb.bin) bytes ==="
-	else
-		echo "=== mitmweb.bin MISSING in $(PKG_BUILD_DIR) ==="
-	fi
 endef
 
 define Package/mitmweb/install
@@ -143,7 +132,7 @@ define Package/mitmweb/install
 		echo "       appended PYZ archive, OR Build/Compile's tar extraction" >&2; \
 		echo "       failed to find the ELF in the tarball." >&2; \
 		echo "       Check the 'Build mitmweb ELF (musl, x86_64)' step log" >&2; \
-		echo "       and the 'post-extract' diagnostic just above." >&2; \
+		echo "       for the real PyInstaller failure." >&2; \
 		exit 1; \
 	fi
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/mitmweb.bin \
