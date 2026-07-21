@@ -238,7 +238,11 @@ jobs:
           # git.openwrt.org/openwrt/openwrt which is slow / flaky from
           # GitHub Actions — use the github.com mirror instead.
           {
-            echo 'src-git-full base https://github.com/openwrt/openwrt.git;openwrt-24.10'
+            # Use src-git (depth-1) instead of src-git-full for the OpenWrt
+            # main tree: the SDK only needs HEAD's package metadata, not the
+            # full history. src-git-full clones ~322MB and takes ~1m45s;
+            # src-git clones ~16MB in ~9s. Verified on 24.10.
+            echo 'src-git base https://github.com/openwrt/openwrt.git;openwrt-24.10'
             echo 'src-git packages https://github.com/openwrt/packages.git;openwrt-24.10'
             echo 'src-git luci https://github.com/openwrt/luci.git;openwrt-24.10'
           } > feeds.conf
@@ -332,8 +336,10 @@ jobs:
           if [ -d package/feeds/packages/ca-bundle ]; then echo "ca-bundle: present"; else echo "ca-bundle: MISSING"; fi
           if [ -d package/feeds/packages/libopenssl ]; then echo "libopenssl: present"; else echo "libopenssl: MISSING"; fi
 
-          # Now build our package.
-          make package/mitmweb-openwrt/compile V=s \
+          # Now build our package. -j$(nproc) parallelises the SDK's
+          # per-package compile + dependency-resolution graph; V=s stays
+          # for log visibility. nproc on ubuntu-latest is 4.
+          make package/mitmweb-openwrt/compile V=s -j$(nproc) \
               MITMWEB_ARCH_HINT=${{ matrix.mitmweb_arch }} \
               MITMWEB_VERSION=${{ steps.ver.outputs.version }}
 
@@ -341,7 +347,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ipk_out
-          find sdk/bin/packages -name '*.ipk' -exec cp -v {} ipk_out/ \;
+          # The SDK produces one .ipk per transitive dep that was compiled
+          # along the way (firmware-*, luci-i18n-*, lib*, kmod-*, ...).
+          # Those are not ours and bloat the release. Only ship mitmweb
+          # and luci-app-mitmweb; users install dependencies via
+          # `opkg install mitmweb` which pulls them automatically.
+          find sdk/bin/packages \
+              \( -name 'mitmweb_*.ipk' -o -name 'luci-app-mitmweb_*.ipk' \) \
+              -exec cp -v {} ipk_out/ \;
           ls -la ipk_out/
 
       - name: Upload ipk artifact
@@ -380,6 +393,30 @@ jobs:
         run: |
           (cd release-asset && sha256sum *.ipk > SHA256SUMS)
           cat release-asset/SHA256SUMS
+
+      # softprops/action-gh-release appends assets; it does not remove
+      # stale ones from previous runs. As we narrow what we ship (e.g.
+      # after dropping firmware/i18n ipks), any prior-run asset still
+      # pinned to this tag would linger. Drop everything that isn't in
+      # the current set first, then re-upload — keeps the release
+      # tidy across rebuilds.
+      - name: Remove stale assets from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          current="$(ls release-asset/ | sort)"
+          # `gh release view --json assets` is empty when the release
+          # hasn't been created yet; that's fine — there is nothing to
+          # delete. softprops will create it on the next step.
+          existing="$(gh release view "${{ github.ref_name }}" \
+              --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          for asset in $existing; do
+              if ! grep -qxF "$asset" <<<"$current"; then
+                  echo "  deleting stale asset: $asset"
+                  gh release delete-asset "${{ github.ref_name }}" "$asset"
+              fi
+          done
 
       - name: Create GitHub release and attach ipks
         uses: softprops/action-gh-release@v2
@@ -434,6 +471,25 @@ jobs:
         run: |
           (cd release-asset && sha256sum *.ipk > SHA256SUMS)
           cat release-asset/SHA256SUMS
+
+      # softprops/action-gh-release appends; old assets stay pinned to
+      # the rolling 'nightly' tag. Delete anything not in the current
+      # build before re-uploading so the nightly release reflects only
+      # the current main-branch artifact set.
+      - name: Remove stale assets from the nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          current="$(ls release-asset/ | sort)"
+          existing="$(gh release view nightly \
+              --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          for asset in $existing; do
+              if ! grep -qxF "$asset" <<<"$current"; then
+                  echo "  deleting stale asset: $asset"
+                  gh release delete-asset nightly "$asset"
+              fi
+          done
 
       - name: Create/update the nightly pre-release
         uses: softprops/action-gh-release@v2
