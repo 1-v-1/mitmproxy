@@ -216,31 +216,37 @@ jobs:
           # Install all feeds (packages, luci, ...) so dependency lookups
           # for iptables-nft, kmod-nf-redirect, luci-base etc. succeed.
           #
-          # ./scripts/feeds update exits non-zero if any feed's git clone /
-          # pull fails (network blip, transient rate limit, broken mirror).
-          # We don't actually need every feed to build mitmweb — only
-          # packages + luci. Run updates individually so a single bad feed
-          # (e.g. telephony, routing) doesn't poison the whole step and
-          # leave us with no index. Also retry each one a couple times
-          # against transient git glitches.
+          # mitmweb only needs packages + luci; the rest (routing,
+          # telephony, base from openwrt.git) is noise. Run each feed's
+          # update individually with a retry so a transient git blip on
+          # one of the optional feeds can't poison the whole step.
           for feed in packages luci; do
+              ok=0
               for attempt in 1 2 3; do
                   echo "=== feeds update -i $feed (attempt $attempt/3) ==="
-                  if ./scripts/feeds update -i "$feed" -f; then
-                      echo "=== $feed updated ==="
+                  if ./scripts/feeds update -i "$feed"; then
+                      ok=1
+                      echo "=== $feed index updated ==="
                       break
                   fi
-                  echo "=== $feed update attempt $attempt failed; sleeping $((attempt * 5))s ==="
+                  echo "=== $feed update attempt $attempt returned non-zero; sleeping $((attempt * 5))s ==="
                   sleep $((attempt * 5))
               done
-              if [ ! -d "feeds/$feed.index" ]; then
-                  echo "ERROR: feed '$feed' failed to update after 3 attempts" >&2
+              # feeds/<name>.index is a *file*, not a directory. (Previous
+              # version of this script used [ ! -d ] and tripped on this,
+              # exiting 1 even when the update succeeded.)
+              if [ "$ok" -ne 1 ] || [ ! -s "feeds/$feed.index" ]; then
+                  echo "ERROR: feed '$feed' failed to update after 3 attempts (missing or empty feeds/$feed.index)" >&2
+                  ls -la feeds/ >&2 || true
                   exit 1
               fi
           done
-          # Now (re)index everything we have, including the optional feeds
-          # we let slide above — the merge step needs all indexes present.
-          ./scripts/feeds update
+          # Re-run the full update so any optional feeds (routing,
+          # telephony, etc.) also get freshly indexed. mitmweb's package
+          # doesn't pull from them, but `feeds install -a` later wants a
+          # complete index set; `|| true` keeps the build going even if
+          # one of the optional feeds is unhealthy.
+          ./scripts/feeds update || echo "WARN: full feeds update had non-optional-feed failures (mitmweb doesn't need them)"
           ./scripts/feeds install -a
 
           # Pre-generate a .config with all defaults. Without this, the
