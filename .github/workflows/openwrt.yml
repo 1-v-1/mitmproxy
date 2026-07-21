@@ -224,10 +224,14 @@ jobs:
           # mitmweb only consumes packages + luci; we deliberately
           # drop routing/telephony/base to keep the surface area small.
           rm -f feeds.conf
-          cat > feeds.conf <<'EOF'
-            src-git packages https://github.com/openwrt/packages.git;openwrt-24.10
-            src-git luci https://github.com/openwrt/luci.git;openwrt-24.10
-          EOF
+          # Avoid heredoc: in a YAML | block any extra indent is preserved
+          # literally by bash, which the OpenWrt feeds parser then rejects
+          # as "Syntax error in feeds.conf, line 1". A brace-group of
+          # echo statements writes each line flush-left reliably.
+          {
+            echo 'src-git packages https://github.com/openwrt/packages.git;openwrt-24.10'
+            echo 'src-git luci https://github.com/openwrt/luci.git;openwrt-24.10'
+          } > feeds.conf
           # Up to three retries against transient git hiccups; a per-feed
           # log so a failure here is never silent.
           for feed in packages luci; do
