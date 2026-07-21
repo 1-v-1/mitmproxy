@@ -225,9 +225,9 @@ jobs:
           # drop routing/telephony/base to keep the surface area small.
           rm -f feeds.conf
           cat > feeds.conf <<'EOF'
-src-git packages  https://github.com/openwrt/packages.git;openwrt-24.10
-src-git luci      https://github.com/openwrt/luci.git;openwrt-24.10
-EOF
+            src-git packages  https://github.com/openwrt/packages.git;openwrt-24.10
+            src-git luci      https://github.com/openwrt/luci.git;openwrt-24.10
+          EOF
           # Up to three retries against transient git hiccups; a per-feed
           # log so a failure here is never silent.
           for feed in packages luci; do
