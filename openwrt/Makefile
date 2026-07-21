@@ -103,13 +103,23 @@ define Build/Compile
 		echo "       See openwrt/README.md for full instructions." >&2; \
 		exit 1; \
 	}
-	$(TAR) -xJf $(TARBALL_PATH) -C $(PKG_BUILD_DIR)
+	# build-mitmweb-musl.sh packs the tarball as
+	#   mitmweb-linux-musl-<arch>-<ver>/
+	#       mitmweb.bin
+	#       SHA256SUMS
+	# Strip the leading arch-named dir so the contents land directly in
+	# $(PKG_BUILD_DIR) and Package/mitmweb/install can reference
+	# $(PKG_BUILD_DIR)/mitmweb.bin. (Without --strip-components=1, the
+	# files land at $(PKG_BUILD_DIR)/mitmweb-linux-musl-<arch>/... and
+	# the install step silently finds nothing, producing a ~32KB ipk
+	# that contains everything except the ELF.)
+	$(TAR) -xJf $(TARBALL_PATH) --strip-components=1 -C $(PKG_BUILD_DIR)
 endef
 
 define Package/mitmweb/install
 	# 1. PyInstaller-built mitmweb ELF
 	$(INSTALL_DIR) $(1)/usr/lib/mitmweb
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/mitmweb-linux-musl-$(MITMWEB_ARCH_HINT)/mitmweb.bin \
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/mitmweb.bin \
 		$(1)/usr/lib/mitmweb/mitmweb.bin
 
 	# 2. /usr/bin/mitmweb wrapper (sets HOME so confdir resolution works)
