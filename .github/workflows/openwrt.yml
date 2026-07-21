@@ -228,7 +228,17 @@ jobs:
           # literally by bash, which the OpenWrt feeds parser then rejects
           # as "Syntax error in feeds.conf, line 1". A brace-group of
           # echo statements writes each line flush-left reliably.
+          #
+          # Three feeds — 'base' is the OpenWrt main tree (lua, liblua,
+          # busybox, build-essential toolchain stubs, ipkg, fwknop, etc.)
+          # and is NOT optional. Cutting it (which I did in an earlier
+          # commit) drops liblua from the build entirely; liblucihttp-lua
+          # then fails with 'lua.h: No such file or directory'. The
+          # default feeds.conf.default points 'base' at
+          # git.openwrt.org/openwrt/openwrt which is slow / flaky from
+          # GitHub Actions — use the github.com mirror instead.
           {
+            echo 'src-git-full base https://github.com/openwrt/openwrt.git;openwrt-24.10'
             echo 'src-git packages https://github.com/openwrt/packages.git;openwrt-24.10'
             echo 'src-git luci https://github.com/openwrt/luci.git;openwrt-24.10'
           } > feeds.conf
