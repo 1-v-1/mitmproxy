@@ -236,14 +236,13 @@ EOF
         echo "       import error, Analysis exception, etc.)." >&2
         return 1
     fi
-    # Magic marker: PyInstaller appends 'MEI\014\013\012\013\016' at
-    # the very end of the onefile ELF as the TOC start marker. If
-    # missing, the bundle wasn't appended.
-    if ! tail -c 8 /tmp/out/mitmweb.bin | grep -q $'MEI\x0c\x0b\x0a\x0b\x0e'; then
-        echo "ERROR: /tmp/out/mitmweb.bin has no MEI TOC marker — bundle" >&2
-        echo "       was not appended to the bootloader." >&2
-        return 1
-    fi
+    # NOTE: an earlier version of this script also checked for a
+    # 'MEI\014\013\012\013\016' cookie at the very end of the ELF.
+    # PyInstaller does write a magic cookie there, but it's obfuscated
+    # (`MAGIC_BASE` with byte[3] += 0x0C — see pyi_archive.c), not the
+    # literal ASCII sequence. Doing a naive grep on the raw bytes gave
+    # false negatives on otherwise-good 29MB ELFs. Skip the marker
+    # check; the size check above is the actual signal we care about.
 }
 
 if [[ $USE_DOCKER -eq 1 ]]; then
