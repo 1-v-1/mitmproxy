@@ -215,6 +215,31 @@ jobs:
           cd sdk
           # Install all feeds (packages, luci, ...) so dependency lookups
           # for iptables-nft, kmod-nf-redirect, luci-base etc. succeed.
+          #
+          # ./scripts/feeds update exits non-zero if any feed's git clone /
+          # pull fails (network blip, transient rate limit, broken mirror).
+          # We don't actually need every feed to build mitmweb — only
+          # packages + luci. Run updates individually so a single bad feed
+          # (e.g. telephony, routing) doesn't poison the whole step and
+          # leave us with no index. Also retry each one a couple times
+          # against transient git glitches.
+          for feed in packages luci; do
+              for attempt in 1 2 3; do
+                  echo "=== feeds update -i $feed (attempt $attempt/3) ==="
+                  if ./scripts/feeds update -i "$feed" -f; then
+                      echo "=== $feed updated ==="
+                      break
+                  fi
+                  echo "=== $feed update attempt $attempt failed; sleeping $((attempt * 5))s ==="
+                  sleep $((attempt * 5))
+              done
+              if [ ! -d "feeds/$feed.index" ]; then
+                  echo "ERROR: feed '$feed' failed to update after 3 attempts" >&2
+                  exit 1
+              fi
+          done
+          # Now (re)index everything we have, including the optional feeds
+          # we let slide above — the merge step needs all indexes present.
           ./scripts/feeds update
           ./scripts/feeds install -a
 
