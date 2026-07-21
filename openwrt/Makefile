@@ -113,7 +113,17 @@ define Build/Compile
 	# files land at $(PKG_BUILD_DIR)/mitmweb-linux-musl-<arch>/... and
 	# the install step silently finds nothing, producing a ~32KB ipk
 	# that contains everything except the ELF.)
-	$(TAR) -xJf $(TARBALL_PATH) --strip-components=1 -C $(PKG_BUILD_DIR)
+	#
+	# Use literal `tar`, NOT $(TAR). $(TAR) is undefined in the OpenWrt
+	# 24.10 SDK (the .mk files only set HOST_TAR:=$(TAR) and TAR_CMD for
+	# the default Build/Prepare PKG_UNPACK flow), so $(TAR) expands to
+	# an empty string. The recipe then becomes:
+	#   -xJf /path/to/...tar.xz --strip-components=1 -C /path/to/dir
+	# which fails with `command not found` (exit 127) for the leading
+	# `-xJf`. Make recipes run each line in its own shell without
+	# `set -e`, so the failure is swallowed silently — leaving an
+	# empty $(PKG_BUILD_DIR) and a stub ipk. Use `tar` directly.
+	tar -xJf $(TARBALL_PATH) --strip-components=1 -C $(PKG_BUILD_DIR)
 endef
 
 define Package/mitmweb/install
