@@ -21,9 +21,14 @@ on:
       - 'release/build.py'
       - 'pyproject.toml'
       - 'mitmproxy/tools/main.py'
+      # Workflow edits don't auto-trigger otherwise — without this, fixing
+      # openwrt.yml alone leaves the CI stuck on the old definition until
+      # somebody also touches openwrt/** or pushes a tag.
+      - '.github/workflows/openwrt.yml'
   pull_request:
     paths:
       - 'openwrt/**'
+      - '.github/workflows/openwrt.yml'
   workflow_dispatch:
     inputs:
       skip_musl_build:
