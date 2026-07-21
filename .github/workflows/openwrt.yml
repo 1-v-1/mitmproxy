@@ -232,27 +232,36 @@ jobs:
             echo 'src-git packages https://github.com/openwrt/packages.git;openwrt-24.10'
             echo 'src-git luci https://github.com/openwrt/luci.git;openwrt-24.10'
           } > feeds.conf
-          # Up to three retries against transient git hiccups; a per-feed
-          # log so a failure here is never silent.
+          # IMPORTANT: do NOT use './scripts/feeds update -i <feed>' here.
+          # The -i flag re-indexes an already-cloned feed without running
+          # the git clone step. On a fresh SDK that produces an empty
+          # packages.index (.packageinfo of 0 bytes, feeds/packages/
+          # never populated). Plain './scripts/feeds update' runs the
+          # full clone + index pass and works.
+          ok=0
+          for attempt in 1 2 3; do
+              echo "=== ./scripts/feeds update (attempt $attempt/3) ==="
+              if ./scripts/feeds update; then
+                  ok=1
+                  break
+              fi
+              echo "=== attempt $attempt failed; sleeping $((attempt*5))s ==="
+              sleep $((attempt*5))
+          done
+          # feeds.conf has only packages + luci; verify both indexes
+          # exist and are non-empty. feeds/<name>.index is a symlink
+          # into feeds/<name>.tmp/.<targetinfo>; follow with readlink
+          # before size-check so '-s' sees the actual data file.
           for feed in packages luci; do
-              ok=0
-              for attempt in 1 2 3; do
-                  echo "=== feeds update -i $feed (attempt $attempt/3) ==="
-                  if ./scripts/feeds update -i "$feed"; then
-                      ok=1
-                      echo "=== $feed index OK ==="
-                      break
-                  fi
-                  echo "=== $feed attempt $attempt failed; sleeping $((attempt*5))s ==="
-                  sleep $((attempt*5))
-              done
-              if [ "$ok" -ne 1 ] || [ ! -s "feeds/$feed.index" ]; then
-                  echo "ERROR: feed '$feed' did not produce a non-empty feeds/$feed.index after 3 attempts." >&2
+              index_target="$(readlink -f "feeds/$feed.index" 2>/dev/null || true)"
+              if [ -z "$index_target" ] || [ ! -s "$index_target" ]; then
+                  echo "ERROR: feed '$feed' index empty or missing (target=$index_target)" >&2
                   echo "===== feeds/ dump =====" >&2
                   ls -laR feeds/ 2>/dev/null | head -40 >&2 || true
                   echo "===== end feeds/ dump =====" >&2
                   exit 1
               fi
+              echo "=== $feed index OK ($(wc -l < "$index_target") entries) ==="
           done
           ./scripts/feeds install -a
 
