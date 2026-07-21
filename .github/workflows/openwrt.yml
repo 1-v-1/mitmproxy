@@ -357,6 +357,29 @@ jobs:
               -exec cp -v {} ipk_out/ \;
           ls -la ipk_out/
 
+          # Sanity check: a properly-built mitmweb onefile binary
+          # (PyInstaller with --onefile + alpine musl + mitmproxy deps)
+          # is ~25-50MB ELF, so the ipk containing it is in the same
+          # ballpark. If we see < 1MB here the musl build silently
+          # produced a bootloader-only stub and we need to fail the
+          # job rather than ship a broken ipk.
+          mitmweb_ipk="$(find ipk_out -name 'mitmweb_*.ipk' | head -n1)"
+          if [ -z "$mitmweb_ipk" ]; then
+              echo "ERROR: no mitmweb_*.ipk produced" >&2
+              exit 1
+          fi
+          sz="$(stat -c %s "$mitmweb_ipk")"
+          echo "mitmweb ipk size: $sz bytes"
+          if [ "$sz" -lt 1000000 ]; then
+              echo "ERROR: mitmweb ipk is suspiciously small ($sz bytes)" >&2
+              echo "       expected ~25MB+. The musl build probably" >&2
+              echo "       produced only the PyInstaller bootloader" >&2
+              echo "       stub without the appended PYZ archive." >&2
+              echo "       Check the 'Build mitmweb ELF (musl, x86_64)'" >&2
+              echo "       step log for the real PyInstaller failure." >&2
+              exit 1
+          fi
+
       - name: Upload ipk artifact
         uses: actions/upload-artifact@v4
         with:

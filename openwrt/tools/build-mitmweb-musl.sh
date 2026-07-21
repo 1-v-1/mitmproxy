@@ -89,6 +89,15 @@ echo "    output:  $binary_path"
 # whatever's in this repo at build time. The pyproject.toml pins the version.
 
 build_inside() {
+    # The parent script has `set -euo pipefail`, but it does NOT
+    # propagate across `sh -c "$(declare -f ...); build_inside"` — the
+    # inner `sh` runs without strict mode, so a failed PyInstaller run
+    # would be silently swallowed (the next `cp` against a missing
+    # source also "fails" without aborting, leaving an empty/stub
+    # /tmp/out/mitmweb.bin and a green CI step). Re-assert it here so
+    # any failure aborts and surfaces in the CI log.
+    set -euo pipefail
+
     local py_image="python:${PYTHON_VERSION}-alpine"
 
     # Native-ext deps from pyproject.toml: aioquic, mitmproxy_rs, cryptography,
@@ -210,6 +219,31 @@ EOF
     ls -la /tmp/out/mitmweb.bin
     file /tmp/out/mitmweb.bin || true
     ldd /tmp/out/mitmweb.bin 2>/dev/null || true
+
+    # Sanity: PyInstaller --onefile appends a PYZ archive to the
+    # bootloader ELF (the TOC at the end of the file references it).
+    # If the ELF is only the bootloader (~65KB) the archive is missing
+    # and the resulting ipk would be a stub. Guard against that
+    # silently shipping — historically, with `set -euo pipefail` not
+    # propagating into the docker sub-shell, a failed PyInstaller run
+    # would leave a stub behind without failing CI.
+    sz=$(stat -c %s /tmp/out/mitmweb.bin)
+    if [ "$sz" -lt 1000000 ]; then
+        echo "ERROR: mitmweb.bin is only $sz bytes — PyInstaller likely" >&2
+        echo "       produced only the bootloader stub without the" >&2
+        echo "       appended PYZ archive. Check the PyInstaller log" >&2
+        echo "       above for the real failure (missing module," >&2
+        echo "       import error, Analysis exception, etc.)." >&2
+        return 1
+    fi
+    # Magic marker: PyInstaller appends 'MEI\014\013\012\013\016' at
+    # the very end of the onefile ELF as the TOC start marker. If
+    # missing, the bundle wasn't appended.
+    if ! tail -c 8 /tmp/out/mitmweb.bin | grep -q $'MEI\x0c\x0b\x0a\x0b\x0e'; then
+        echo "ERROR: /tmp/out/mitmweb.bin has no MEI TOC marker — bundle" >&2
+        echo "       was not appended to the bootloader." >&2
+        return 1
+    fi
 }
 
 if [[ $USE_DOCKER -eq 1 ]]; then
