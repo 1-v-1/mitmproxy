@@ -216,37 +216,40 @@ jobs:
           # Install all feeds (packages, luci, ...) so dependency lookups
           # for iptables-nft, kmod-nf-redirect, luci-base etc. succeed.
           #
-          # mitmweb only needs packages + luci; the rest (routing,
-          # telephony, base from openwrt.git) is noise. Run each feed's
-          # update individually with a retry so a transient git blip on
-          # one of the optional feeds can't poison the whole step.
+          # Override the SDK's default feeds.conf.default with a
+          # GitHub-mirror-only config. The default points at
+          # git.openwrt.org which has periodic outages and is slow from
+          # GitHub Actions runners; GitHub's own mirrors of the same
+          # repos are inside the runner's network and never fail.
+          # mitmweb only consumes packages + luci; we deliberately
+          # drop routing/telephony/base to keep the surface area small.
+          rm -f feeds.conf
+          cat > feeds.conf <<'EOF'
+src-git packages  https://github.com/openwrt/packages.git;openwrt-24.10
+src-git luci      https://github.com/openwrt/luci.git;openwrt-24.10
+EOF
+          # Up to three retries against transient git hiccups; a per-feed
+          # log so a failure here is never silent.
           for feed in packages luci; do
               ok=0
               for attempt in 1 2 3; do
                   echo "=== feeds update -i $feed (attempt $attempt/3) ==="
                   if ./scripts/feeds update -i "$feed"; then
                       ok=1
-                      echo "=== $feed index updated ==="
+                      echo "=== $feed index OK ==="
                       break
                   fi
-                  echo "=== $feed update attempt $attempt returned non-zero; sleeping $((attempt * 5))s ==="
-                  sleep $((attempt * 5))
+                  echo "=== $feed attempt $attempt failed; sleeping $((attempt*5))s ==="
+                  sleep $((attempt*5))
               done
-              # feeds/<name>.index is a *file*, not a directory. (Previous
-              # version of this script used [ ! -d ] and tripped on this,
-              # exiting 1 even when the update succeeded.)
               if [ "$ok" -ne 1 ] || [ ! -s "feeds/$feed.index" ]; then
-                  echo "ERROR: feed '$feed' failed to update after 3 attempts (missing or empty feeds/$feed.index)" >&2
-                  ls -la feeds/ >&2 || true
+                  echo "ERROR: feed '$feed' did not produce a non-empty feeds/$feed.index after 3 attempts." >&2
+                  echo "===== feeds/ dump =====" >&2
+                  ls -laR feeds/ 2>/dev/null | head -40 >&2 || true
+                  echo "===== end feeds/ dump =====" >&2
                   exit 1
               fi
           done
-          # Re-run the full update so any optional feeds (routing,
-          # telephony, etc.) also get freshly indexed. mitmweb's package
-          # doesn't pull from them, but `feeds install -a` later wants a
-          # complete index set; `|| true` keeps the build going even if
-          # one of the optional feeds is unhealthy.
-          ./scripts/feeds update || echo "WARN: full feeds update had non-optional-feed failures (mitmweb doesn't need them)"
           ./scripts/feeds install -a
 
           # Pre-generate a .config with all defaults. Without this, the
