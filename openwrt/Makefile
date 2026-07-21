@@ -114,11 +114,38 @@ define Build/Compile
 	# the install step silently finds nothing, producing a ~32KB ipk
 	# that contains everything except the ELF.)
 	$(TAR) -xJf $(TARBALL_PATH) --strip-components=1 -C $(PKG_BUILD_DIR)
+	# Debug: surface the file sizes we ended up with. Diagnosing a
+	# recurring case where the ipk comes out ~65KB (just bootloader
+	# stub) while the upstream tarball is ~27MB — printing the on-disk
+	# sizes here lets us see which side the discrepancy is on.
+	echo "=== post-extract: $(PKG_BUILD_DIR) contents ==="
+	ls -la "$(PKG_BUILD_DIR)/"
+	if [ -f "$(PKG_BUILD_DIR)/mitmweb.bin" ]; then
+		echo "=== mitmweb.bin size: $$(stat -c %s $(PKG_BUILD_DIR)/mitmweb.bin) bytes ==="
+	else
+		echo "=== mitmweb.bin MISSING in $(PKG_BUILD_DIR) ==="
+	fi
 endef
 
 define Package/mitmweb/install
 	# 1. PyInstaller-built mitmweb ELF
 	$(INSTALL_DIR) $(1)/usr/lib/mitmweb
+	# Sanity: refuse to package a stub. A real PyInstaller --onefile
+	# ELF for mitmproxy + deps is ~25-80MB. Anything under 1MB means
+	# Build/Compile produced only the bootloader stub (PYZ archive
+	# missing) and shipping that as an ipk would be a 65KB dead
+	# package. Fail loudly so the GH Actions step goes red instead.
+	@src_sz=$$(stat -c %s $(PKG_BUILD_DIR)/mitmweb.bin 2>/dev/null || echo 0); \
+	if [ "$$src_sz" -lt 1000000 ]; then \
+		echo "ERROR: $(PKG_BUILD_DIR)/mitmweb.bin is only $$src_sz bytes." >&2; \
+		echo "       Expected 25MB+. The musl build's PyInstaller --onefile" >&2; \
+		echo "       step produced only the bootloader stub without the" >&2; \
+		echo "       appended PYZ archive, OR Build/Compile's tar extraction" >&2; \
+		echo "       failed to find the ELF in the tarball." >&2; \
+		echo "       Check the 'Build mitmweb ELF (musl, x86_64)' step log" >&2; \
+		echo "       and the 'post-extract' diagnostic just above." >&2; \
+		exit 1; \
+	fi
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/mitmweb.bin \
 		$(1)/usr/lib/mitmweb/mitmweb.bin
 
