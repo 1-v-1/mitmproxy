@@ -1,7 +1,14 @@
 -- /usr/lib/lua/luci/controller/mitmweb.lua
 --
--- Entry-point for the LuCI "MITM Proxy" page. Modern rpcd/ubus-based model
--- (each leaf is a `call(...)` action routed through ubus).
+-- Entry-point for the LuCI "MITM Proxy" page. Each leaf is an
+-- `entry(...).leaf = true` action routed through ubus. Uses `entry()`
+-- (not `page()`) because the latter is a Lua-dispatcher convenience
+-- that iStoreOS / OpenWrt 24+ ucode runtime doesn't expose — calling
+-- `page()` from a controller invoked through ucodebridge.lua fails
+-- with "attempt to call global 'page' (a nil value)" and the whole
+-- web UI 500s. `entry()` has identical semantics for our purpose
+-- (path + target + title + order) and works on both Lua and ucode
+-- runtimes.
 
 module("luci.controller.mitmweb", package.seeall)
 
@@ -19,9 +26,9 @@ function index()
     root.dependent = true
     root.acl_depends = { "luci-app-mitmweb" }
 
-    page({"admin", "services", "mitmweb", "status"},       cbi("mitmweb"), _("Status"),              1)
-    page({"admin", "services", "mitmweb", "basic"},        cbi("mitmweb"), _("Basic Settings"),      2)
-    page({"admin", "services", "mitmweb", "transparent"},  cbi("mitmweb"), _("Transparent Proxy"),   3)
+    entry({"admin", "services", "mitmweb", "status"},      cbi("mitmweb"), _("Status"),              1)
+    entry({"admin", "services", "mitmweb", "basic"},       cbi("mitmweb"), _("Basic Settings"),      2)
+    entry({"admin", "services", "mitmweb", "transparent"}, cbi("mitmweb"), _("Transparent Proxy"),   3)
 
     entry({"admin", "services", "mitmweb", "status_json"}, call("action_status")).leaf = true
     entry({"admin", "services", "mitmweb", "cert"},        call("action_cert")).leaf   = true
