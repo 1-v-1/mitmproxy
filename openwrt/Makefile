@@ -114,16 +114,16 @@ define Build/Compile
 	# the install step silently finds nothing, producing a ~32KB ipk
 	# that contains everything except the ELF.)
 	#
-	# Use literal `tar`, NOT $(TAR). $(TAR) is undefined in the OpenWrt
-	# 24.10 SDK (the .mk files only set HOST_TAR:=$(TAR) and TAR_CMD for
-	# the default Build/Prepare PKG_UNPACK flow), so $(TAR) expands to
-	# an empty string. The recipe then becomes:
-	#   -xJf /path/to/...tar.xz --strip-components=1 -C /path/to/dir
-	# which fails with `command not found` (exit 127) for the leading
-	# `-xJf`. Make recipes run each line in its own shell without
-	# `set -e`, so the failure is swallowed silently — leaving an
-	# empty $(PKG_BUILD_DIR) and a stub ipk. Use `tar` directly.
-	tar -xJf $(TARBALL_PATH) --strip-components=1 -C $(PKG_BUILD_DIR)
+	# Use `xzcat | tar -xf -`, NOT `tar -xJf`. The OpenWrt 24.10 SDK
+	# ships busybox tar without reliable xz support: on this image,
+	# `tar -xJf foo.tar.xz` reads the file as if it were an uncompressed
+	# tar, sees the xz magic bytes as garbage, and exits 0 after
+	# extracting nothing. The build then proceeds against an empty
+	# $(PKG_BUILD_DIR) and ships a ~32KB stub ipk. OpenWrt's own
+	# packages avoid this by piping xzcat into a vanilla `tar -xf -`;
+	# do the same here. (Use literal `tar`, NOT $(TAR) — TAR is
+	# undefined in this SDK, see commit e0ead1d62.)
+	xzcat $(TARBALL_PATH) | tar -C $(PKG_BUILD_DIR) --strip-components=1 -xf -
 endef
 
 define Package/mitmweb/install
