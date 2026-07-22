@@ -88,7 +88,7 @@ src_root="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -n1)"
 bin="$src_root/mitmweb.bin"
 [[ -f "$bin" ]] || { echo "ERROR: $bin not found in tarball" >&2; exit 1; }
 
-bin_sz=$(stat -c %s "$bin")
+bin_sz=$(wc -c < "$bin" | tr -d ' ')
 echo "    ELF size: $bin_sz bytes"
 if (( bin_sz < 1000000 )); then
     echo "ERROR: mitmweb.bin is only $bin_sz bytes — musl build produced" >&2
@@ -167,8 +167,12 @@ EOF
     fi
 
     # Lay out data tree from (src, dst, mode) triples.
+    # Plain `install -m` won't create leading directories; use mkdir -p
+    # first so the destination's parent exists. POSIX-portable — works
+    # on both GNU coreutils install and BSD install.
     for ((i=0; i<${#triples[@]}; i+=3)); do
         local src="${triples[i]}" dst="${triples[i+1]}" mode="${triples[i+2]}"
+        mkdir -p "$(dirname "$root/data$dst")"
         install -m "$mode" "$src" "$root/data$dst"
     done
 
@@ -181,7 +185,7 @@ EOF
     rm -f "$out_ipk"
     (cd "$WORK" && ar rcs "$out_ipk" debian-binary control.tar.gz data.tar.gz)
 
-    local sz=$(stat -c %s "$out_ipk")
+    local sz=$(wc -c < "$out_ipk" | tr -d ' ')
     echo "    $out_ipk ($sz bytes)"
 }
 
@@ -204,8 +208,10 @@ PKG_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # We bundle the empty confdir as a zero-byte file with mode 0750; the
 # postinst script chowns it to mitmweb:mitmweb anyway. ipkg-build's
 # behaviour with truly-empty directories is finicky; a sentinel is more
-# portable across OpenWrt versions.
+# portable across OpenWrt versions. Create the sentinel file now so the
+# triple below has a real source to install.
 mkdir -p "$WORK/sentinel-etc-mitmweb"
+: > "$WORK/sentinel-etc-mitmweb/.keep"
 
 build_ipk "mitmweb" "$ARCH" \
     "Package: mitmweb" \
