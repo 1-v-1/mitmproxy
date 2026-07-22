@@ -204,14 +204,25 @@ EOF
 
     local out_ipk="$OUT/${pkg}_${VERSION}-r1_${arch}.ipk"
     rm -f "$out_ipk"
-    # Drop the `s` flag from `ar rcs` → `ar rc`. The `s` writes a
-    # `__.SYMDEF` symbol table as the first member, which some opkg
-    # versions don't recognise as a non-data member and choke on. ipkg
-    # doesn't need the symbol table — it reads each member by name in
-    # order. Older ipkg-build invocations used `ar rc` (no `s`); the
-    # `s` is only an optimisation for `ld` lookups, which opkg doesn't
-    # do.
-    (cd "$WORK" && ar rc "$out_ipk" debian-binary control.tar.gz data.tar.gz)
+    # Package: OpenWrt's modern ipk format is a plain tar archive
+    # containing three files at the root, each prefixed with `./`:
+    #   ./debian-binary    — literal "2.0\n"
+    #   ./control.tar.gz   — control dir + scripts (control, postinst, prerm)
+    #   ./data.tar.gz      — the package's installed files
+    #
+    # NOT an ar archive. The old OpenWrt docs (and ipkg-build on very
+    # old trees) used `ar rcs`; current opkg rejects that with
+    # "Malformed package file" because the first 8 bytes are
+    # "!<arch>\n", not "./debian-binary".
+    #
+    # Stage the three files under a subdirectory and tar with `.` so
+    # the member names get the `./` prefix that OpenWrt's package
+    # server output has. ustar format + no xattrs/ACLs for max parser
+    # compatibility.
+    local stage="$WORK/ipk-stage"
+    rm -rf "$stage" && mkdir -p "$stage"
+    cp "$WORK/debian-binary" "$WORK/control.tar.gz" "$WORK/data.tar.gz" "$stage/"
+    (cd "$stage" && tar --format=ustar --no-xattrs --no-acls -cf "$out_ipk" .)
 
     local sz=$(wc -c < "$out_ipk" | tr -d ' ')
     echo "    $out_ipk ($sz bytes)"
@@ -288,10 +299,8 @@ ls -la "$OUT"
 # ----------------------------------------------------------------------------
 # 4. Sanity-check the produced ipks.
 # ----------------------------------------------------------------------------
-# Print the ar magic + member list so we can see what opkg will see.
-# Recent OpenWrt opkg rejects anything where the first 8 bytes are not
-# `!<arch>\n` (the literal magic) with "Malformed package file"; this
-# dump lets us verify from CI logs without downloading the artifact.
+# Print the format (tar magic) + member list so we can verify what
+# opkg will see from CI logs without downloading the artifact.
 for ipk in "$OUT"/*.ipk; do
     [[ -f "$ipk" ]] || continue
     echo
@@ -299,5 +308,5 @@ for ipk in "$OUT"/*.ipk; do
     echo "    size:    $(wc -c < "$ipk" | tr -d ' ') bytes"
     echo "    magic:   $(head -c 8 "$ipk" | od -c -An | tr -s ' ')"
     echo "    members:"
-    ar t "$ipk" 2>&1 | sed 's/^/      /'
+    tar tf "$ipk" 2>&1 | sed 's/^/      /'
 done
