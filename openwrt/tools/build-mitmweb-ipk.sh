@@ -67,6 +67,16 @@ done
 [[ -f "$TARBALL" ]]  || { echo "ERROR: tarball not found: $TARBALL" >&2; exit 1; }
 [[ -n "$OUT"      ]] || { echo "ERROR: --out required" >&2;      usage 1; }
 
+# Resolve --out to an absolute path. The ar(1) subshell later runs with
+# cwd=$WORK (a fresh mktemp dir), so a relative --out would resolve
+# against the wrong directory and `ar` would error with "No such file
+# or directory". Make --out absolute up-front so the subshell's cwd
+# doesn't matter.
+case "$OUT" in
+    /*) ;;
+    *)  OUT="$(cd "$(dirname -- "$OUT")" && pwd)/$(basename -- "$OUT")" ;;
+esac
+
 mkdir -p "$OUT"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
