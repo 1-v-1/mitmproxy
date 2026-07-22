@@ -1,0 +1,23 @@
+#!/bin/sh
+# /etc/uci-defaults/99-mitmweb-acl
+# Runs once on first boot after package install. Grants the
+# luci-app-mitmweb ACL group (defined in
+# /usr/share/rpcd/acl.d/50-mitmweb.json) to the admin role so the
+# LuCI menu shows up. uci-defaults scripts self-delete after they
+# run successfully, so this is safe to leave in the ipk.
+
+# /etc/config/rpcd may not exist yet on first boot — bail out
+# without doing anything in that case; the role/grant can be
+# configured later manually.
+[ -f /etc/config/rpcd ] || exit 0
+
+# Grant luci-app-mitmweb as the access ACL for the admin role
+# (the section that matches by name "admin"). We use a batch so
+# the entire grant is atomic — partial grants would leave the
+# role in a half-configured state.
+uci -q batch <<-EOF
+    set rpcd.@admin[0].acl=luci-app-mitmweb
+    commit rpcd
+EOF
+
+exit 0

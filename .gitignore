@@ -1,5 +1,35 @@
-# local test artifacts (build-mitmweb-ipk.sh test outputs)
-control.tar.gz
-ipk-test-out/
-rel-out/
-/tmp/
+# Local test artifacts
+/control.tar.gz
+/ipk-test-out/
+/rel-out/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Hypothesis
+.hypothesis/
+
+# Editor / OS
+*.swp
+.DS_Store
+.idea/
+.vscode/
