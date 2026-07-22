@@ -1,0 +1,13 @@
+{
+	"admin/services/mitmweb": {
+		"title": "MITM Proxy",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "services/mitmweb/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-mitmweb" ]
+		}
+	}
+}

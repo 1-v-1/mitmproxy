@@ -308,7 +308,7 @@ build_ipk "mitmweb" "$ARCH" \
     "$PKG_ROOT/files/etc/hotplug.d/iface/99-mitmweb-restart"       "/etc/hotplug.d/iface/99-mitmweb-restart"     "0644" \
     "$PKG_ROOT/files/etc/logrotate.d/mitmweb"                      "/etc/logrotate.d/mitmweb"                    "0644" \
     "$PKG_ROOT/files/etc/sysctl.d/99-mitmweb.conf"                 "/etc/sysctl.d/99-mitmweb.conf"               "0644" \
-    "$PKG_ROOT/files/usr/share/rpcd/acl.d/50-mitmweb.json"      "/usr/share/rpcd/acl.d/50-mitmweb.json"       "0644" \
+    "$PKG_ROOT/files/usr/share/rpcd/acl.d/luci-app-mitmweb.json"  "/usr/share/rpcd/acl.d/luci-app-mitmweb.json"  "0644" \
     "$PKG_ROOT/files/etc/uci-defaults/99-mitmweb-acl"             "/etc/uci-defaults/99-mitmweb-acl"           "0755" \
     "$PKG_ROOT/files/etc/uci-defaults/99-mitmweb-perms"            "/etc/uci-defaults/99-mitmweb-perms"          "0755" \
     "$WORK/sentinel-etc-mitmweb/.keep"                             "/etc/mitmweb/.keep"                          "0750"
@@ -316,6 +316,28 @@ build_ipk "mitmweb" "$ARCH" \
 # ----------------------------------------------------------------------------
 # 4. Build luci-app-mitmweb_<ver>-r1_all.ipk
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# 4. Build luci-app-mitmweb_<ver>-r1_all.ipk
+# ----------------------------------------------------------------------------
+# File layout (mirrors the old Package/luci-app-mitmweb/install recipe):
+#   /usr/lib/lua/luci/controller/mitmweb.lua  — module entry
+#   /usr/lib/lua/luci/model/cbi/mitmweb.lua    — CBI map (Status/Basic/Transparent)
+#   /usr/lib/lua/luci/view/mitmweb/status.htm  — Status tab server template
+#   /usr/lib/lua/luci/i18n/mitmweb.en.po       — English
+#   /usr/lib/lua/luci/i18n/mitmweb.zh-cn.po    — Simplified Chinese
+#   /usr/share/luci/menu.d/luci-app-mitmweb.json  — menu entry; LuCI's
+#     menu subsystem scans /usr/share/luci/menu.d/*.json at startup
+#     and registers each top-level node (here, "admin/services/mitmweb"
+#     under Services). Without this file the LuCI left nav has no
+#     way to know "MITM Proxy" should appear.
+#   /usr/share/rpcd/acl.d/luci-app-mitmweb.json  — ACL group definition
+#     for the `luci-app-mitmweb` group. The controller's
+#     `acl_depends = { "luci-app-mitmweb" }` and the menu entry's
+#     `depends.acl = [ "luci-app-mitmweb" ]` both reference it; rpcd
+#     reads every *.json in /usr/share/rpcd/acl.d/ to learn the
+#     available groups. The "who has access" mapping comes from
+#     /etc/config/rpcd (iStoreOS-style: login section with
+#     `list read '*'` grants root access to every group).
 build_ipk "luci-app-mitmweb" "all" \
     "Package: luci-app-mitmweb" \
     "Version: ${VERSION}-r1" \
@@ -330,7 +352,9 @@ build_ipk "luci-app-mitmweb" "all" \
     "$PKG_ROOT/luasrc/model/cbi/mitmweb.lua"           "/usr/lib/lua/luci/model/cbi/mitmweb.lua"      "0644" \
     "$PKG_ROOT/luasrc/view/mitmweb/status.htm"         "/usr/lib/lua/luci/view/mitmweb/status.htm"    "0644" \
     "$PKG_ROOT/po/en/mitmweb.po"                      "/usr/lib/lua/luci/i18n/mitmweb.en.po"         "0644" \
-    "$PKG_ROOT/po/zh-cn/mitmweb.po"                   "/usr/lib/lua/luci/i18n/mitmweb.zh-cn.po"      "0644"
+    "$PKG_ROOT/po/zh-cn/mitmweb.po"                   "/usr/lib/lua/luci/i18n/mitmweb.zh-cn.po"      "0644" \
+    "$PKG_ROOT/files/usr/share/luci/menu.d/luci-app-mitmweb.json"  "/usr/share/luci/menu.d/luci-app-mitmweb.json"  "0644" \
+    "$PKG_ROOT/files/usr/share/rpcd/acl.d/luci-app-mitmweb.json"   "/usr/share/rpcd/acl.d/luci-app-mitmweb.json"   "0644"
 
 echo ">>> Done."
 ls -la "$OUT"
