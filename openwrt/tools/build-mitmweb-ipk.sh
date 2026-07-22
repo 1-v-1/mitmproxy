@@ -205,24 +205,21 @@ EOF
     local out_ipk="$OUT/${pkg}_${VERSION}-r1_${arch}.ipk"
     rm -f "$out_ipk"
     # Package: OpenWrt's modern ipk format is a plain tar archive
-    # containing three files at the root, each prefixed with `./`:
-    #   ./debian-binary    — literal "2.0\n"
+    # containing exactly three members at the root, each prefixed
+    # with `./`. NO separate `./` directory entry, NO other files:
+    #   ./debian-binary    — literal "2.0\n", mode 0644
     #   ./control.tar.gz   — control dir + scripts (control, postinst, prerm)
     #   ./data.tar.gz      — the package's installed files
     #
-    # NOT an ar archive. The old OpenWrt docs (and ipkg-build on very
-    # old trees) used `ar rcs`; current opkg rejects that with
-    # "Malformed package file" because the first 8 bytes are
-    # "!<arch>\n", not "./debian-binary".
+    # NOT an ar archive (the old ipkg-build used `ar rcs`; modern
+    # OpenWrt switched the outer container to tar).
     #
-    # Stage the three files under a subdirectory and tar with `.` so
-    # the member names get the `./` prefix that OpenWrt's package
-    # server output has. ustar format + no xattrs/ACLs for max parser
-    # compatibility.
-    local stage="$WORK/ipk-stage"
-    rm -rf "$stage" && mkdir -p "$stage"
-    cp "$WORK/debian-binary" "$WORK/control.tar.gz" "$WORK/data.tar.gz" "$stage/"
-    (cd "$stage" && tar --format=ustar --no-xattrs --no-acls -cf "$out_ipk" .)
+    # Critically: do NOT use `tar cf ... .` — that adds a standalone
+    # `./` directory entry as the FIRST member, which opkg treats as
+    # a malformed package. Match ipkg-build exactly: pass the file
+    # arguments directly with `./` prefix on each name.
+    (cd "$WORK" && tar --format=ustar --no-xattrs --no-acls \
+        -cf "$out_ipk" ./debian-binary ./control.tar.gz ./data.tar.gz)
 
     local sz=$(wc -c < "$out_ipk" | tr -d ' ')
     echo "    $out_ipk ($sz bytes)"
