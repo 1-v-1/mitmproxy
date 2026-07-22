@@ -204,22 +204,24 @@ EOF
 
     local out_ipk="$OUT/${pkg}_${VERSION}-r1_${arch}.ipk"
     rm -f "$out_ipk"
-    # Package: OpenWrt's modern ipk format is a plain tar archive
-    # containing exactly three members at the root, each prefixed
-    # with `./`. NO separate `./` directory entry, NO other files:
+    # Package: OpenWrt's ipk format is gzip-of-tar-of-tar — a single
+    # gzip stream wrapping a tar archive that contains the three
+    # package files (which are themselves gzipped tars). The outer
+    # gzip is detected by opkg via the `1f 8b` magic bytes; without
+    # it opkg sees a plain tarball and rejects it with "Malformed
+    # package file". The reference for this format is OpenWrt's
+    # ipkg-build script, which uses `tar -czf` (note the lowercase
+    # `z` = gzip the outer container).
+    #
+    # Members:
     #   ./debian-binary    — literal "2.0\n", mode 0644
     #   ./control.tar.gz   — control dir + scripts (control, postinst, prerm)
     #   ./data.tar.gz      — the package's installed files
     #
-    # NOT an ar archive (the old ipkg-build used `ar rcs`; modern
-    # OpenWrt switched the outer container to tar).
-    #
-    # Critically: do NOT use `tar cf ... .` — that adds a standalone
-    # `./` directory entry as the FIRST member, which opkg treats as
-    # a malformed package. Match ipkg-build exactly: pass the file
-    # arguments directly with `./` prefix on each name.
-    (cd "$WORK" && tar --format=ustar --no-xattrs --no-acls \
-        -cf "$out_ipk" ./debian-binary ./control.tar.gz ./data.tar.gz)
+    # NO standalone `./` directory entry — pass file arguments
+    # directly so tar doesn't add a `./` entry as the first member.
+    (cd "$WORK" && tar --format=ustar --no-xattrs --no-acls -czf "$out_ipk" \
+        ./debian-binary ./control.tar.gz ./data.tar.gz)
 
     local sz=$(wc -c < "$out_ipk" | tr -d ' ')
     echo "    $out_ipk ($sz bytes)"
