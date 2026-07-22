@@ -187,13 +187,31 @@ EOF
     done
 
     # Pack: control.tar.gz + data.tar.gz + debian-binary -> ar.
-    (cd "$root/control" && tar -czf "$WORK/control.tar.gz" .)
-    (cd "$root/data"    && tar -czf "$WORK/data.tar.gz"    .)
+    # Two compatibility shims here that ipkg-build also relies on:
+    #   * `tar --format=ustar --no-xattrs --no-acls` — forces POSIX ustar
+    #     tar format with no extended headers, no xattrs, no ACLs. GNU tar
+    #     on a modern runner defaults to GNU format with extra pax
+    #     headers, which older opkg parsers can't read and silently fail.
+    #   * `chmod 755 control/postinst control/prerm` after `tar`-ing —
+    #     opkg extracts scripts with their original mode and refuses to
+    #     execute non-0755 files (most ipks on disk have scripts at 755
+    #     because ipkg-build chmods them). Without this the package
+    #     installs but the postinst silently never runs.
+    (cd "$root/control" && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/control.tar.gz" .)
+    chmod 0755 "$root/control/postinst" "$root/control/prerm" 2>/dev/null || true
+    (cd "$root/data"    && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/data.tar.gz"    .)
     printf '2.0\n' > "$WORK/debian-binary"
 
     local out_ipk="$OUT/${pkg}_${VERSION}-r1_${arch}.ipk"
     rm -f "$out_ipk"
-    (cd "$WORK" && ar rcs "$out_ipk" debian-binary control.tar.gz data.tar.gz)
+    # Drop the `s` flag from `ar rcs` → `ar rc`. The `s` writes a
+    # `__.SYMDEF` symbol table as the first member, which some opkg
+    # versions don't recognise as a non-data member and choke on. ipkg
+    # doesn't need the symbol table — it reads each member by name in
+    # order. Older ipkg-build invocations used `ar rc` (no `s`); the
+    # `s` is only an optimisation for `ld` lookups, which opkg doesn't
+    # do.
+    (cd "$WORK" && ar rc "$out_ipk" debian-binary control.tar.gz data.tar.gz)
 
     local sz=$(wc -c < "$out_ipk" | tr -d ' ')
     echo "    $out_ipk ($sz bytes)"
