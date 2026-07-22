@@ -1,5 +1,5 @@
 {
-    "mitmweb-status": {
+    "luci-app-mitmweb": {
         "description": "Allow LuCI to read mitmweb state, control the service, and stream CA files.",
         "read": {
             "cgi-io": [
