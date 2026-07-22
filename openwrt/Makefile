@@ -71,6 +71,14 @@ define Package/mitmweb
   URL:=https://mitmproxy.org/
   DEPENDS:=+iptables-nft +kmod-nf-nat +kmod-ipt-nat +libc +libopenssl +zlib +ca-bundle +libpthread
   USERID:=mitmweb=472:mitmweb=472
+  # Skip OpenWrt's rstrip.sh — it runs `sstrip -z` on every ELF in the
+  # ipkg, which corrupts PyInstaller --onefile binaries. PyInstaller's
+  # bootloader + appended PYZ archive confuses sstrip's ELF parser, and
+  # it truncates the file down to a ~30KB ELF skeleton, producing a
+  # ~33KB stub ipk. The PyInstaller binary is already stripped at
+  # build time (see openwrt/tools/build-mitmweb-musl.sh's --strip
+  # flag), so there's nothing for rstrip to do here.
+  PKG_NO_STRIP:=1
 endef
 
 # OpenWrt's musl libc package installs /lib/libc.so + /lib/ld-musl-<arch>.so.1
