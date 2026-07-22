@@ -32,13 +32,9 @@ on:
   workflow_dispatch:
     inputs:
       skip_musl_build:
-        description: 'Skip musl-binary job (use existing artifacts)'
+        description: 'Skip musl-binary job (use existing artifact)'
         type: boolean
         default: false
-      openwrt_version:
-        description: 'OpenWrt SDK version (e.g. 24.10.0). Leave empty for default.'
-        type: string
-        default: ''
 
 # Minimal read perms are enough; no code is published from this workflow.
 permissions:
@@ -47,11 +43,6 @@ permissions:
 concurrency:
   group: openwrt-${{ github.ref }}
   cancel-in-progress: true
-
-# Default OpenWrt SDK version — match the lowest version we still support
-# (currently 24.10.0). Override per-run via the workflow_dispatch input.
-env:
-  DEFAULT_OPENWRT_VERSION: '24.10.0'
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -85,8 +76,7 @@ jobs:
           # Both this step and the one in openwrt-package output
           # `version=v${VERSION}` so the tarball filename produced here
           # (which feeds into the upload-artifact path glob) matches the
-          # filename the SDK Makefile expects (`TARBALL_NAME` derives
-          # from MITMWEB_VERSION=v<VERSION>).
+          # filename build-mitmweb-ipk.sh expects.
           VERSION=$(sed -nE 's/^VERSION[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
               mitmproxy/version.py | head -n1)
           [ -n "$VERSION" ] || { echo "could not read VERSION from mitmproxy/version.py" >&2; exit 1; }
@@ -111,14 +101,21 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # 2. Use the musl tarball + an OpenWrt SDK to produce ipk files.
-  #    The matrix below maps each supported (target, sdk) onto the right musl
-  #    arch and SDK Docker image tag. SDK image tags follow the convention:
-  #       <arch>-<version>          (e.g. x86_64-24.10.0, armsr-armv8-24.10.0)
-  #    The OpenWrt project publishes these on hub.docker.com/r/openwrt/sdk.
+  # 2. Reuse the musl tarball to produce ipks.
   #
-  #    To add a new target, append a row to the matrix below and (optionally)
-  #    extend the musl-binary matrix above.
+  # This job does NOT use the OpenWrt SDK Docker image, Makefile-based
+  # package system, or anything else that re-strips the ELF. It runs
+  # openwrt/tools/build-mitmweb-ipk.sh directly on the runner, which:
+  #   * extracts mitmweb.bin from the artifact tarball,
+  #   * lays out data/ + control/ trees for mitmweb and luci-app-mitmweb,
+  #   * ar's them into standard .ipk files (control.tar.gz + data.tar.gz
+  #     + debian-binary).
+  #
+  # PyInstaller's --onefile ELF is already stripped at build time, so
+  # nothing between this job and the user's router should touch it again.
+  #
+  # To add a new target, append a row to the matrix below and (optionally)
+  # extend the musl-binary matrix above.
   # ---------------------------------------------------------------------------
   openwrt-package:
     name: ipk (${{ matrix.profile }})
@@ -128,45 +125,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The OpenWrt project publishes prebuilt SDKs as Docker images
-          # on hub.docker.com/r/openwrt/sdk with the tag convention
-          # `<arch>-<version>` (e.g. x86_64-24.10.0). Pulling the image
-          # is faster than downloading + decompressing the .tar.zst SDK
-          # tarball (layer cache hits on warm runner; no zstd step), and
-          # we don't need to write to /sdk to copy a tree in — bind-
-          # mount it. Override the version segment via the workflow_dispatch
-          # `openwrt_version` input; the arch segment stays as-is.
-          - sdk_tag: x86_64-24.10.0
-            profile: x86_64
+          - profile: x86_64
             mitmweb_arch: x86_64
           # aarch64 musl build takes >1h on GitHub Actions runners because
           # Docker's QEMU emulation of linux/arm64 is ~10x slower than
           # native x86_64 build. Disabled until we either find a way to
           # build natively (e.g. arm64 self-hosted runner) or speed up
           # the cross-compile.
-          # - sdk_tag: armsr-armv8-24.10.0
-          #   profile: armsr-armv8
+          # - profile: armsr-armv8
           #   mitmweb_arch: aarch64
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Resolve OpenWrt SDK image tag (override from workflow_dispatch)
-        id: sdktag
-        run: |
-          input_ver="${{ inputs.openwrt_version }}"
-          if [ -n "$input_ver" ]; then
-              # Swap in the user-specified OpenWrt version segment of the
-              # tag, leaving the arch segment (x86_64, aarch64_cortex-a53,
-              # ...) untouched.
-              base_tag="${{ matrix.sdk_tag }}"
-              arch_segment="${base_tag%%-*}"
-              echo "sdk_tag=${arch_segment}-${input_ver}" >> "$GITHUB_OUTPUT"
-          else
-              echo "sdk_tag=${{ matrix.sdk_tag }}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Using OpenWrt SDK image: openwrt/sdk:${{ steps.sdktag.outputs.sdk_tag }}"
 
       - name: Download the matching musl tarball artifact
         uses: actions/download-artifact@v4
@@ -175,184 +146,40 @@ jobs:
           path: dl_in
           merge-multiple: false
 
-      - name: Resolve mitmproxy version (for the SDK Makefile)
+      - name: Resolve mitmproxy version (must match the musl job's --tag)
         id: ver
         run: |
-          # pyproject.toml has `dynamic = ["version"]`, so there is no
-          # literal `version = "..."` line to grep. mitmproxy/version.py
-          # is the actual source of truth: VERSION = "13.0.0.dev" etc.
           VERSION=$(sed -nE 's/^VERSION[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
               mitmproxy/version.py | head -n1)
           [ -n "$VERSION" ] || { echo "could not read VERSION from mitmproxy/version.py" >&2; exit 1; }
           echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
 
-      # Pull the SDK image BEFORE we try to write the build script, so
-      # a missing tag (typo in `openwrt_version`, etc.) fails fast and
-      # the bind-mount step below never runs.
-      - name: Pull OpenWrt SDK container
-        run: docker pull openwrt/sdk:${{ steps.sdktag.outputs.sdk_tag }}
-
-      # Compile the ipks. Notes on the layout (same pattern as Gatesentry's
-      # .github/workflows/build-openwrt.yml):
-      #  * openwrt/sdk's working dir is /builder; we mount our package
-      #    tree onto /builder/package/mitmweb-openwrt so BuildPackage picks
-      #    it up without copying into the image's filesystem.
-      #  * `--user root` so the host can write into /builder/package/.
-      #  * The build script is written to a host file and bind-mounted in,
-      #    NOT passed inline via `bash -c '...'`. Inline scripts with
-      #    single quotes inside (the feeds.conf block below) close the
-      #    outer quote and break parsing in subtle, non-reproducible ways.
-      #  * `IGNORE_ERRORS=y` keeps the build going past any tooling holes
-      #    in the minimal SDK image — luci-app-mitmweb is a Lua-only
-      #    package whose install step doesn't need anything those holes
-      #    produce.
-      - name: Compile ipk packages
-        run: |
-          mkdir -p "${{ github.workspace }}/.openwrt-out"
-
-          cat > .openwrt-build.sh <<'SDK_EOF'
-          set -e
-          set -x
-
-          # Drop our package tree in. OpenWrt's BuildPackage walks the
-          # immediate subdirectories of package/ looking for a Makefile,
-          # so the directory name is what shows up in
-          # `make package/<name>/compile`. Wipe any stale target dir
-          # first — cp -r into an existing destination nests it one
-          # level deeper and OpenWrt won't pick it up.
-          rm -rf /builder/package/mitmweb-openwrt
-          cp -r /src/openwrt /builder/package/mitmweb-openwrt
-
-          # Place the musl tarball in dl/; $(DL_DIR) defaults to
-          # /builder/dl/. /in is the host bind-mount of the artifact
-          # we downloaded above; `download-artifact@v4` preserves the
-          # upload-side path, so the tarball lives at
-          # /in/release/dist/<name>.tar.xz. Use find to walk any subdir
-          # shape.
-          mkdir -p /builder/dl
-          find /in -name '*.tar.xz' -type f -exec cp -v {} /builder/dl/ \;
-          ls -la /builder/dl/
-
-          cd /builder
-
-          # Override feeds.conf: the image's default points 'base' at
-          # git.openwrt.org/openwrt/openwrt, which is slow / flaky from
-          # GitHub Actions runners. Use the github.com mirror instead.
-          # Use src-git (depth-1) instead of src-git-full — full clones
-          # ~322MB and take ~1m45s, src-git clones ~16MB in ~9s.
-          rm -f feeds.conf
-          {
-            echo 'src-git base https://github.com/openwrt/openwrt.git;openwrt-24.10'
-            echo 'src-git packages https://github.com/openwrt/packages.git;openwrt-24.10'
-            echo 'src-git luci https://github.com/openwrt/luci.git;openwrt-24.10'
-          } > feeds.conf
-
-          # Three feeds — 'base' is the OpenWrt main tree (lua, liblua,
-          # busybox, build-essential toolchain stubs, ipkg, fwknop, etc.)
-          # and is NOT optional. Cutting it drops liblua from the build
-          # entirely; liblucihttp-lua then fails with
-          # 'lua.h: No such file or directory'.
-          #
-          # IMPORTANT: do NOT use './scripts/feeds update -i <feed>' here.
-          # -i re-indexes an already-cloned feed without running the git
-          # clone step. On a fresh SDK that produces an empty
-          # packages.index (0-byte .packageinfo). Plain './scripts/feeds
-          # update' runs the full clone + index pass.
-          ok=0
-          for attempt in 1 2 3; do
-              echo "=== ./scripts/feeds update (attempt $attempt/3) ==="
-              if ./scripts/feeds update; then
-                  ok=1
-                  break
-              fi
-              echo "=== attempt $attempt failed; sleeping $((attempt*5))s ==="
-              sleep $((attempt*5))
-          done
-          [ "$ok" -eq 1 ] || { echo "feeds update failed after 3 attempts" >&2; exit 1; }
-
-          # feeds/<name>.index is a symlink into
-          # feeds/<name>.tmp/.<targetinfo>; follow with readlink before
-          # size-check so '-s' sees the actual data file.
-          for feed in packages luci; do
-              index_target="$(readlink -f "feeds/$feed.index" 2>/dev/null || true)"
-              if [ -z "$index_target" ] || [ ! -s "$index_target" ]; then
-                  echo "ERROR: feed '$feed' index empty or missing (target=$index_target)" >&2
-                  exit 1
-              fi
-              echo "=== $feed index OK ($(wc -l < "$index_target") entries) ==="
-          done
-          ./scripts/feeds install -a
-
-          # Pre-generate a .config with all defaults. Without this, the
-          # first make run tries to open menuconfig interactively, which
-          # fails in a non-TTY CI environment with "Error opening
-          # terminal: unknown".
-          make defconfig
-
-          # Disable the Lua binding of liblucihttp. LuCI in 24.10 runs
-          # through uhttpd + ucode, so mitmweb doesn't need
-          # liblucihttp-lua. lucihttp's Makefile uses
-          # '$(if X,ON,OFF)' for -DBUILD_LUA, which evaluates to ON
-          # whenever CONFIG_PACKAGE_liblucihttp-lua is non-empty. Sed
-          # the cmake argument to a hard OFF.
-          sed -i 's/^[[:space:]]*-DBUILD_LUA=\$(if CONFIG_PACKAGE_liblucihttp-lua,ON,OFF)/	-DBUILD_LUA=OFF/' \
-              feeds/luci/contrib/package/lucihttp/Makefile
-
-          # Now build our package. -j$(nproc) parallelises the SDK's
-          # per-package compile + dependency-resolution graph; V=s stays
-          # for log visibility. nproc on ubuntu-latest is 4.
-          make package/mitmweb-openwrt/compile V=s -j$(nproc) \
-              IGNORE_ERRORS=y \
-              MITMWEB_ARCH_HINT="${MITMWEB_ARCH_HINT}" \
-              MITMWEB_VERSION="${MITMWEB_VERSION}"
-
-          # Only stage our own packages. bin/packages/ also contains every
-          # transitive dependency ipk built by the SDK (liblua, libuci,
-          # libubus, libiwinfo, ...); uploading those to the release would
-          # bloat it with ~200 files we don't ship.
-          echo "=== produced ipks ==="
-          find bin/packages -name 'mitmweb_*.ipk' -exec cp -v {} /out/ \;
-          find bin/packages -name 'luci-app-mitmweb_*.ipk' -exec cp -v {} /out/ \;
-          ls -la /out/
-          SDK_EOF
-
-          docker run --rm --user root \
-            -e MITMWEB_ARCH_HINT="${{ matrix.mitmweb_arch }}" \
-            -e MITMWEB_VERSION="${{ steps.ver.outputs.version }}" \
-            -v "${{ github.workspace }}/openwrt":/src/openwrt:ro \
-            -v "${{ github.workspace }}/dl_in":/in:ro \
-            -v "${{ github.workspace }}/.openwrt-out":/out \
-            -v "${{ github.workspace }}/.openwrt-build.sh":/build.sh:ro \
-            openwrt/sdk:${{ steps.sdktag.outputs.sdk_tag }} \
-            bash /build.sh
-
-      # Docker writes files as root (so we can write /builder/package/),
-      # but the runner's user can't read root-owned files on the host.
-      # Chmod the ipks so actions/upload-artifact can pick them up.
-      - name: Fix artifact permissions
-        run: sudo chmod -R a+rX "${{ github.workspace }}/.openwrt-out"
-
-      - name: Collect built ipks
+      - name: Build ipk packages
         run: |
           set -euo pipefail
+          # download-artifact@v4 preserves the upload-side path. The
+          # musl job uploads from release/dist/<name>.tar.xz; find walks
+          # any subdir shape download-artifact might have used.
+          tarball="$(find dl_in -name 'mitmweb-linux-musl-*.tar.xz' -type f | head -n1)"
+          [ -n "$tarball" ] || { echo "ERROR: no musl tarball artifact found under dl_in/" >&2; exit 1; }
+          echo ">>> Using musl tarball: $tarball"
+
           mkdir -p ipk_out
-          # The docker container already filtered to just our two packages
-          # (mitmweb_*.ipk, luci-app-mitmweb_*.ipk) before copying them
-          # into /out/, which is bind-mounted to .openwrt-out/. Copy them
-          # into ipk_out/ so the upload step's path is local and stable.
-          # We don't re-filter here because the SDK also produces ~200
-          # transitive dep ipks (liblua, libuci, libubus, libiwinfo, ...)
-          # which would bloat the release — those were filtered out at
-          # the docker stage.
-          find .openwrt-out -name '*.ipk' -type f -exec cp -v {} ipk_out/ \;
+          chmod +x openwrt/tools/build-mitmweb-ipk.sh
+          openwrt/tools/build-mitmweb-ipk.sh \
+              --tarball "$tarball" \
+              --arch "${{ matrix.mitmweb_arch }}" \
+              --version "${{ steps.ver.outputs.version }}" \
+              --out ipk_out
+
+          echo "=== produced ipks ==="
           ls -la ipk_out/
 
-          # Sanity check: a properly-built mitmweb onefile binary
-          # (PyInstaller with --onefile + alpine musl + mitmproxy deps)
-          # is ~25-50MB ELF, so the ipk containing it is in the same
-          # ballpark. If we see < 1MB here the musl build silently
-          # produced a bootloader-only stub and we need to fail the
-          # job rather than ship a broken ipk.
+          # Sanity: a properly-built PyInstaller --onefile binary is
+          # ~25-50 MB, so the ipk containing it is in the same ballpark.
+          # If we see < 1 MB here the musl build silently produced a
+          # bootloader-only stub and we need to fail the job rather than
+          # ship a broken ipk.
           mitmweb_ipk="$(find ipk_out -name 'mitmweb_*.ipk' | head -n1)"
           if [ -z "$mitmweb_ipk" ]; then
               echo "ERROR: no mitmweb_*.ipk produced" >&2
@@ -362,10 +189,9 @@ jobs:
           echo "mitmweb ipk size: $sz bytes"
           if [ "$sz" -lt 1000000 ]; then
               echo "ERROR: mitmweb ipk is suspiciously small ($sz bytes)" >&2
-              echo "       expected ~25MB+. The musl build probably" >&2
-              echo "       produced only the PyInstaller bootloader" >&2
-              echo "       stub without the appended PYZ archive." >&2
-              echo "       Check the 'Build mitmweb ELF (musl, x86_64)'" >&2
+              echo "       expected ~10MB+. The musl build probably" >&2
+              echo "       produced only the PyInstaller bootloader stub." >&2
+              echo "       Check the 'Build mitmweb ELF (musl, ${{ matrix.mitmweb_arch }})'" >&2
               echo "       step log for the real PyInstaller failure." >&2
               exit 1
           fi
@@ -444,12 +270,12 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 4. On every push to main (not a v* tag), publish the same ipks to a
-  #    rolling "nightly" pre-release instead of a versioned one. This gives
-  #    a stable download link for the latest main-branch build without
-  #    touching semantic version tags — those are reserved for real
-  #    releases (see publish-on-release above). The 'nightly' git tag is
-  #    force-moved to the current commit on each run, mirroring what a
-  #    tag push does but without disturbing v* tag history.
+  # rolling "nightly" pre-release instead of a versioned one. This gives
+  # a stable download link for the latest main-branch build without
+  # touching semantic version tags — those are reserved for real
+  # releases (see publish-on-release above). The 'nightly' git tag is
+  # force-moved to the current commit on each run, mirroring what a
+  # tag push does but without disturbing v* tag history.
   # ---------------------------------------------------------------------------
   publish-nightly:
     name: publish (nightly)

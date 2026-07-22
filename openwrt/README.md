@@ -35,53 +35,45 @@ What LuCI *does* expose that mitmweb's own UI does not:
 
 ## Building
 
-### 1. Build the musl ELF binaries
+The release pipeline (`.github/workflows/openwrt.yml`) is two jobs:
+
+1. **`musl-binary`** — runs `openwrt/tools/build-mitmweb-musl.sh` in a
+   `python:3.13-alpine` Docker container to produce the stripped musl-linked
+   ELF. Output: `release/dist/mitmweb-linux-musl-<arch>-<tag>.tar.xz`,
+   uploaded as a GitHub Actions artifact.
+2. **`openwrt-package`** — downloads the tarball artifact and runs
+   `openwrt/tools/build-mitmweb-ipk.sh` directly on the runner. That script
+   lays out the package files, generates the control tarball, and `ar`s
+   everything into standard `.ipk` files. **No OpenWrt SDK, no
+   `make defconfig`, no feeds, no `rstrip.sh`/`sstrip`** — PyInstaller's
+   output is already stripped and ready to ship.
+
+### Building locally
 
 ```sh
 cd openwrt/tools
+
+# Step 1: produce the musl tarball
 ./build-mitmweb-musl.sh --arch x86_64 --tag v12.0.0
-./build-mitmweb-musl.sh --arch aarch64 --tag v12.0.0
+#  → ../release/dist/mitmweb-linux-musl-x86_64-v12.0.0.tar.xz
+
+# Step 2: package it as ipks
+./build-mitmweb-ipk.sh \
+    --tarball ../release/dist/mitmweb-linux-musl-x86_64-v12.0.0.tar.xz \
+    --arch x86_64 \
+    --version v12.0.0 \
+    --out /tmp/mitmweb-ipks
+#  → /tmp/mitmweb-ipks/mitmweb_v12.0.0-r1_x86_64.ipk
+#  → /tmp/mitmweb-ipks/luci-app-mitmweb_v12.0.0-r1_all.ipk
 ```
 
-This script builds a single ELF via PyInstaller inside an `python:3.13-alpine`
-Docker container (so the resulting binary links against musl libc, which is
-what OpenWrt uses). It needs:
-
-- Docker on the build host
-- `pyinstaller==6.20.0` (installed inside the container)
-- The local checkout of mitmproxy mounted into the container at `/src`
-
-Output:
+The tarball layout (produced by `build-mitmweb-musl.sh`):
 
 ```
-<repo>/release/dist/mitmweb-linux-musl-<arch>-<tag>.bin       # raw ELF (~30-50 MB)
-<repo>/release/dist/mitmweb-linux-musl-<arch>-<tag>.tar.xz    # tarball with SHA256SUM
+mitmweb-linux-musl-<arch>-<tag>/
+    mitmweb.bin    # stripped, dynamically linked ELF (~30 MB)
+    SHA256SUMS
 ```
-
-If the build host is itself musl-based (Alpine, Void, Chimera), pass
-`--no-container` to skip Docker.
-
-### 2. Place the tarball in the SDK's dl/
-
-```sh
-cp release/dist/mitmweb-linux-musl-x86_64-v12.0.0.tar.xz \
-   ~/openwrt-sdk-x86_64_*/dl/
-```
-
-### 3. Add the package to the SDK feed
-
-Either drop this `openwrt/` directory into a local feed (e.g.
-`~/openwrt-sdk-*/package-src/mitmproxy-feed/`), or symlink it into the SDK's
-`package/` tree and run `make package/mitmweb/compile`.
-
-```sh
-cd ~/openwrt-sdk-x86_64_cortex-a53_gcc-13.3.0_musl.Linux-x86_64
-ln -s /path/to/mitmproxy/openwrt package/mitmproxy-openwrt
-make package/mitmweb/compile V=s
-```
-
-Output: `bin/packages/<arch>/mitmweb_<ver>_<arch>.ipk` and
-`bin/packages/<arch>/luci-app-mitmweb_<ver>_all.ipk`.
 
 ---
 
@@ -176,7 +168,6 @@ at the router. Every request to that hostname is captured.
 
 ```
 openwrt/
-├── Makefile                      # OpenWrt package Makefile (two Package/ blocks)
 ├── README.md                     # This file
 ├── LICENSE                       # MIT
 ├── files/
@@ -197,7 +188,8 @@ openwrt/
 │   ├── en/mitmweb.po             # English (no-op)
 │   └── zh-cn/mitmweb.po          # 简体中文
 └── tools/
-    └── build-mitmweb-musl.sh     # PyInstaller-in-Docker build helper
+    ├── build-mitmweb-musl.sh     # PyInstaller-in-Docker build helper
+    └── build-mitmweb-ipk.sh      # ipk assembler (runs on the CI runner)
 ```
 
 ---
@@ -240,8 +232,9 @@ ldd mitmweb-linux-musl-x86_64-*.bin
 ### Package
 
 ```sh
-make package/mitmweb/compile V=s
-ls bin/packages/<arch>/{mitmweb,luci-app-mitmweb}_*.ipk
+ls /tmp/mitmweb-ipks/
+#  mitmweb_v12.0.0-r1_x86_64.ipk
+#  luci-app-mitmweb_v12.0.0-r1_all.ipk
 ```
 
 ### On a device / VM
