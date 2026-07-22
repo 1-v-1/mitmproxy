@@ -159,19 +159,17 @@ build_ipk() {
     # Install scripts (postinst, prerm) — generated below for mitmweb only;
     # luci-app-mitmweb has none.
     if [[ "$pkg" == "mitmweb" ]]; then
+        # Minimal postinst / prerm as a smoke test. If THIS still
+        # returns 126, the problem is opkg itself (file mode stripped
+        # on extract, noexec mount, etc.) — nothing we can fix from
+        # the build script. If THIS works, the issue was in our
+        # longer script body (line endings, BOM, etc.).
         cat > "$root/control/postinst" <<'EOF'
 #!/bin/sh
-chown -R mitmweb:mitmweb /etc/mitmweb 2>/dev/null || true
-chmod 0750 /etc/mitmweb
-mkdir -p /var/log
-touch /var/log/mitmweb.log
-chown mitmweb:mitmweb /var/log/mitmweb.log
 exit 0
 EOF
         cat > "$root/control/prerm" <<'EOF'
 #!/bin/sh
-/etc/init.d/mitmweb stop >/dev/null 2>&1 || true
-/etc/init.d/mitmweb disable >/dev/null 2>&1 || true
 exit 0
 EOF
         # OpenWrt's ipkg-build also includes these even when empty:
