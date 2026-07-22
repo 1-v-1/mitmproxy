@@ -86,23 +86,24 @@ echo "    output:  $binary_path"
 # Step 0: Cache directories on the runner, bind-mounted into the Alpine
 # container so cargo / pip / PyInstaller state survives across CI runs.
 # ---------------------------------------------------------------------------
-# actions/cache restores these on the runner before the container starts;
-# the bind-mount then makes the same files visible inside the container at
-# the same path. On a cache hit, cargo reuses its registry, pip reuses its
+# The runner-side paths come from the workflow (which sets them to
+# ${HOME}/.cargo etc.). Inside the Alpine container the default user is
+# root with $HOME=/root, so cargo/pip/PyInstaller all look at /root/...
+# by default — see the docker run block below, which maps the runner
+# paths onto /root/... so the tools find them without env-var wiring.
+#
+# actions/cache restores these on the runner before the container
+# starts; the bind-mount then makes the same files visible inside the
+# container. On a cache hit, cargo reuses its registry, pip reuses its
 # downloaded wheels, PyInstaller reuses its pre-stripped binary cache,
 # and rustup skips re-downloading the toolchain — saving ~5 min of the
 # overall ~12 min build.
-#
-# All paths default to the in-container $HOME (/root) so the bind-mount
-# aligns one-to-one. Override via env var if the runner's paths differ
-# (e.g. self-hosted runners).
-: "${CARGO_HOME:=/root/.cargo}"
-: "${RUSTUP_HOME:=/root/.rustup}"
-: "${PIP_CACHE_DIR:=/root/.cache/pip}"
-: "${PYI_CACHE_DIR:=/root/.cache/pyinstaller}"
-export CARGO_HOME RUSTUP_HOME PIP_CACHE_DIR PYI_CACHE_DIR
-# Pre-create on the host so the bind-mount has something to mount on the
-# very first (cold-cache) run.
+: "${CARGO_HOME:=$HOME/.cargo}"
+: "${RUSTUP_HOME:=$HOME/.rustup}"
+: "${PIP_CACHE_DIR:=$HOME/.cache/pip}"
+: "${PYI_CACHE_DIR:=$HOME/.cache/pyinstaller}"
+# Pre-create on the host so the bind-mount has a directory to mount on
+# the very first (cold-cache) run.
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$PIP_CACHE_DIR" "$PYI_CACHE_DIR"
 
 # ---------------------------------------------------------------------------
@@ -286,18 +287,18 @@ if [[ $USE_DOCKER -eq 1 ]]; then
 
     docker run --rm \
         --platform "$docker_platform" \
-        -e PYINSTALLER_VERSION \
-        -e PYTHON_VERSION \
-        -e CARGO_HOME \
-        -e RUSTUP_HOME \
-        -e PIP_CACHE_DIR \
-        -e PYI_CACHE_DIR \
+        -e PYINSTALLER_VERSION="$PYINSTALLER_VERSION" \
+        -e PYTHON_VERSION="$PYTHON_VERSION" \
+        # Inside the Alpine container the default user is root with
+        # $HOME=/root, so cargo/pip/PyInstaller all look at /root/...
+        # by default. Map the runner's cache dirs onto those exact paths
+        # so the tools find them without any extra env-var wiring.
+        -v "$CARGO_HOME:/root/.cargo" \
+        -v "$RUSTUP_HOME:/root/.rustup" \
+        -v "$PIP_CACHE_DIR:/root/.cache/pip" \
+        -v "$PYI_CACHE_DIR:/root/.cache/pyinstaller" \
         -v "$repo_root:/src" \
         -v "$OUT:/tmp/out" \
-        -v "$CARGO_HOME:$CARGO_HOME" \
-        -v "$RUSTUP_HOME:$RUSTUP_HOME" \
-        -v "$PIP_CACHE_DIR:$PIP_CACHE_DIR" \
-        -v "$PYI_CACHE_DIR:$PYI_CACHE_DIR" \
         -w /tmp \
         "python:${PYTHON_VERSION}-alpine" \
         sh -c "$(declare -f build_inside); build_inside"
