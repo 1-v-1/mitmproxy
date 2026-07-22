@@ -285,14 +285,19 @@ if [[ $USE_DOCKER -eq 1 ]]; then
         *)       docker_platform="linux/amd64" ;;
     esac
 
+    # Inside the Alpine container the default user is root with
+    # $HOME=/root, so cargo/pip/PyInstaller all look at /root/...
+    # by default. Map the runner's cache dirs onto those exact paths
+    # so the tools find them without any extra env-var wiring.
+    # (NOTE: keep the comment OUTSIDE the `\`-continued block — a `#`
+    # mid-continuation makes bash swallow everything from the `#` to
+    # the end of the joined logical line, including every -v that
+    # follows. Tested locally: docker ends up seeing only `-e VAR=...`
+    # and barfs "requires at least 1 argument".)
     docker run --rm \
         --platform "$docker_platform" \
         -e PYINSTALLER_VERSION="$PYINSTALLER_VERSION" \
         -e PYTHON_VERSION="$PYTHON_VERSION" \
-        # Inside the Alpine container the default user is root with
-        # $HOME=/root, so cargo/pip/PyInstaller all look at /root/...
-        # by default. Map the runner's cache dirs onto those exact paths
-        # so the tools find them without any extra env-var wiring.
         -v "$CARGO_HOME:/root/.cargo" \
         -v "$RUSTUP_HOME:/root/.rustup" \
         -v "$PIP_CACHE_DIR:/root/.cache/pip" \
