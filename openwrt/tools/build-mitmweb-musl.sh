@@ -83,6 +83,29 @@ echo "    source:  $repo_root"
 echo "    output:  $binary_path"
 
 # ---------------------------------------------------------------------------
+# Step 0: Cache directories on the runner, bind-mounted into the Alpine
+# container so cargo / pip / PyInstaller state survives across CI runs.
+# ---------------------------------------------------------------------------
+# actions/cache restores these on the runner before the container starts;
+# the bind-mount then makes the same files visible inside the container at
+# the same path. On a cache hit, cargo reuses its registry, pip reuses its
+# downloaded wheels, PyInstaller reuses its pre-stripped binary cache,
+# and rustup skips re-downloading the toolchain — saving ~5 min of the
+# overall ~12 min build.
+#
+# All paths default to the in-container $HOME (/root) so the bind-mount
+# aligns one-to-one. Override via env var if the runner's paths differ
+# (e.g. self-hosted runners).
+: "${CARGO_HOME:=/root/.cargo}"
+: "${RUSTUP_HOME:=/root/.rustup}"
+: "${PIP_CACHE_DIR:=/root/.cache/pip}"
+: "${PYI_CACHE_DIR:=/root/.cache/pyinstaller}"
+export CARGO_HOME RUSTUP_HOME PIP_CACHE_DIR PYI_CACHE_DIR
+# Pre-create on the host so the bind-mount has something to mount on the
+# very first (cold-cache) run.
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$PIP_CACHE_DIR" "$PYI_CACHE_DIR"
+
+# ---------------------------------------------------------------------------
 # Step 1: Resolve & install local mitmproxy + deps inside the builder.
 # ---------------------------------------------------------------------------
 # We install the *local* checkout (not PyPI) so the resulting binary matches
@@ -122,7 +145,10 @@ build_inside() {
         xz >/dev/null
 
     # Install PyInstaller first (small, fast) so we have a known-good pip.
-    pip install --no-cache-dir --break-system-packages \
+    # --no-cache-dir is intentional: pip's cache lives at $PIP_CACHE_DIR
+    # (bind-mounted from the runner, where actions/cache persists it),
+    # not in pip's per-user default. Pip picks it up via $PIP_CACHE_DIR.
+    pip install --break-system-packages \
         "pyinstaller==${PYINSTALLER_VERSION}" || {
             echo "ERROR: failed to install pyinstaller $PYINSTALLER_VERSION" >&2
             return 1
@@ -151,7 +177,7 @@ build_inside() {
     # `bpfel-unknown-none` nightly target that has no prebuilt musl
     # artifacts, and which we don't need on a router anyway since the
     # "local" mode it backs is for desktop capture, not gateway use).
-    pip install --no-cache-dir --break-system-packages --no-deps /src || {
+    pip install --break-system-packages --no-deps /src || {
         echo "ERROR: failed to install local /src" >&2
         return 1
     }
@@ -160,14 +186,14 @@ build_inside() {
     # conditional `Requires-Dist: mitmproxy-linux` is NOT honoured. The
     # Rust extension itself builds fine on musl; only the redirector
     # binary that comes from mitmproxy-linux doesn't.
-    pip install --no-cache-dir --break-system-packages --no-deps mitmproxy_rs || {
+    pip install --break-system-packages --no-deps mitmproxy_rs || {
         echo "ERROR: failed to install mitmproxy_rs" >&2
         return 1
     }
 
     # Install every other runtime dep with normal resolution. None of them
     # transitively depend on mitmproxy-linux, so they all install cleanly.
-    pip install --no-cache-dir --break-system-packages \
+    pip install --break-system-packages \
         aioquic argon2-cffi asgiref bcrypt brotli certifi \
         cryptography flask h11 h2 hyperframe kaitaistruct ldap3 pyopenssl \
         pyparsing pyperclip publicsuffix2 "ruamel.yaml" sortedcontainers \
@@ -260,10 +286,18 @@ if [[ $USE_DOCKER -eq 1 ]]; then
 
     docker run --rm \
         --platform "$docker_platform" \
-        -e PYINSTALLER_VERSION="$PYINSTALLER_VERSION" \
-        -e PYTHON_VERSION="$PYTHON_VERSION" \
+        -e PYINSTALLER_VERSION \
+        -e PYTHON_VERSION \
+        -e CARGO_HOME \
+        -e RUSTUP_HOME \
+        -e PIP_CACHE_DIR \
+        -e PYI_CACHE_DIR \
         -v "$repo_root:/src" \
         -v "$OUT:/tmp/out" \
+        -v "$CARGO_HOME:$CARGO_HOME" \
+        -v "$RUSTUP_HOME:$RUSTUP_HOME" \
+        -v "$PIP_CACHE_DIR:$PIP_CACHE_DIR" \
+        -v "$PYI_CACHE_DIR:$PYI_CACHE_DIR" \
         -w /tmp \
         "python:${PYTHON_VERSION}-alpine" \
         sh -c "$(declare -f build_inside); build_inside"

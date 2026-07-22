@@ -83,7 +83,55 @@ jobs:
           echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
           echo "version=v${VERSION}"
 
+      # ------------------------------------------------------------------------
+      # Restore build caches from previous CI runs. The Alpine container
+      # bind-mounts these into itself (see build-mitmweb-musl.sh), so cargo
+      # + rustup + pip + PyInstaller all pick up where the last successful
+      # build left off. Saves ~5 min on a cache hit.
+      #
+      # Cache keys hash the inputs that affect each cache's contents:
+      #   * cargo/rustup: pyproject.toml — Cargo.toml/Cargo.lock live in
+      #     the mitmproxy_rs sdist and aren't on disk here, so pyproject
+      #     is the best signal we have for "the dep set changed".
+      #   * pip: pyproject.toml — same reasoning.
+      #   * pyinstaller: pyproject.toml + release/specs/mitmweb — the
+      #     PyInstaller binary cache is keyed by the entry-point script
+      #     hash and PyInstaller's own version.
+      # `release/specs/mitmweb` only affects the pyinstaller cache because
+      # it's only used as the PyInstaller entry point, never imported.
+      # ------------------------------------------------------------------------
+      - name: Restore cargo/rustup cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            ~/.rustup
+          key: cargo-v1-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            cargo-v1-${{ runner.os }}-${{ matrix.arch }}-
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-v1-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-v1-${{ runner.os }}-${{ matrix.arch }}-
+
+      - name: Restore PyInstaller cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyinstaller
+          key: pyinst-v1-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pyproject.toml', 'release/specs/mitmweb') }}
+          restore-keys: |
+            pyinst-v1-${{ runner.os }}-${{ matrix.arch }}-
+
       - name: Build mitmweb ELF (musl, ${{ matrix.arch }})
+        env:
+          CARGO_HOME: ${{ runner.home }}/.cargo
+          RUSTUP_HOME: ${{ runner.home }}/.rustup
+          PIP_CACHE_DIR: ${{ runner.home }}/.cache/pip
+          PYI_CACHE_DIR: ${{ runner.home }}/.cache/pyinstaller
         run: |
           chmod +x openwrt/tools/build-mitmweb-musl.sh
           cd openwrt/tools
