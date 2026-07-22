@@ -127,12 +127,15 @@ jobs:
             pyinst-v1-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Build mitmweb ELF (musl, ${{ matrix.arch }})
-        env:
-          CARGO_HOME: ${{ runner.home }}/.cargo
-          RUSTUP_HOME: ${{ runner.home }}/.rustup
-          PIP_CACHE_DIR: ${{ runner.home }}/.cache/pip
-          PYI_CACHE_DIR: ${{ runner.home }}/.cache/pyinstaller
         run: |
+          # Use ${HOME} (always /home/runner on hosted Linux runners) rather
+          # than ${{ runner.home }} — the latter has historically returned
+          # an empty string on some runner images, which then concatenated
+          # to '/.cargo' and broke the mkdir in the script below.
+          export CARGO_HOME="${HOME}/.cargo"
+          export RUSTUP_HOME="${HOME}/.rustup"
+          export PIP_CACHE_DIR="${HOME}/.cache/pip"
+          export PYI_CACHE_DIR="${HOME}/.cache/pyinstaller"
           chmod +x openwrt/tools/build-mitmweb-musl.sh
           cd openwrt/tools
           ./build-mitmweb-musl.sh \
