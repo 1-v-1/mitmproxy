@@ -159,17 +159,31 @@ build_ipk() {
     # Install scripts (postinst, prerm) — generated below for mitmweb only;
     # luci-app-mitmweb has none.
     if [[ "$pkg" == "mitmweb" ]]; then
-        # Minimal postinst / prerm as a smoke test. If THIS still
-        # returns 126, the problem is opkg itself (file mode stripped
-        # on extract, noexec mount, etc.) — nothing we can fix from
-        # the build script. If THIS works, the issue was in our
-        # longer script body (line endings, BOM, etc.).
+        # Self-heal for the "old install left 0644 scripts behind"
+        # scenario: if opkg (or any earlier install) ever extracted
+        # these scripts without +x, we get into a stuck state where
+        # `opkg install` sees "up to date" and won't re-extract, but
+        # the postinst can't be exec'd. The self-heal at the top of
+        # each script chmods $0 and re-execs via `sh` (which doesn't
+        # require +x on the script). After the first run, the file is
+        # 0755 forever; the check just no-ops on subsequent installs.
         cat > "$root/control/postinst" <<'EOF'
 #!/bin/sh
+[ -x "$0" ] || chmod 0755 "$0"
+[ -x "$0" ] || exec /bin/sh "$0" "$@"
+chown -R mitmweb:mitmweb /etc/mitmweb 2>/dev/null || true
+chmod 0750 /etc/mitmweb
+mkdir -p /var/log
+touch /var/log/mitmweb.log
+chown mitmweb:mitmweb /var/log/mitmweb.log
 exit 0
 EOF
         cat > "$root/control/prerm" <<'EOF'
 #!/bin/sh
+[ -x "$0" ] || chmod 0755 "$0"
+[ -x "$0" ] || exec /bin/sh "$0" "$@"
+/etc/init.d/mitmweb stop >/dev/null 2>&1 || true
+/etc/init.d/mitmweb disable >/dev/null 2>&1 || true
 exit 0
 EOF
         # OpenWrt's ipkg-build also includes these even when empty:
