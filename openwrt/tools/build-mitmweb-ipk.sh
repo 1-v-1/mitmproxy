@@ -308,7 +308,6 @@ build_ipk "mitmweb" "$ARCH" \
     "$PKG_ROOT/files/etc/hotplug.d/iface/99-mitmweb-restart"       "/etc/hotplug.d/iface/99-mitmweb-restart"     "0644" \
     "$PKG_ROOT/files/etc/logrotate.d/mitmweb"                      "/etc/logrotate.d/mitmweb"                    "0644" \
     "$PKG_ROOT/files/etc/sysctl.d/99-mitmweb.conf"                 "/etc/sysctl.d/99-mitmweb.conf"               "0644" \
-    "$PKG_ROOT/files/usr/share/rpcd/acl.d/luci-app-mitmweb.json"  "/usr/share/rpcd/acl.d/luci-app-mitmweb.json"  "0644" \
     "$PKG_ROOT/files/etc/uci-defaults/99-mitmweb-acl"             "/etc/uci-defaults/99-mitmweb-acl"           "0755" \
     "$PKG_ROOT/files/etc/uci-defaults/99-mitmweb-perms"            "/etc/uci-defaults/99-mitmweb-perms"          "0755" \
     "$WORK/sentinel-etc-mitmweb/.keep"                             "/etc/mitmweb/.keep"                          "0750"
