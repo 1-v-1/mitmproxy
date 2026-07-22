@@ -266,3 +266,20 @@ build_ipk "luci-app-mitmweb" "all" \
 
 echo ">>> Done."
 ls -la "$OUT"
+
+# ----------------------------------------------------------------------------
+# 4. Sanity-check the produced ipks.
+# ----------------------------------------------------------------------------
+# Print the ar magic + member list so we can see what opkg will see.
+# Recent OpenWrt opkg rejects anything where the first 8 bytes are not
+# `!<arch>\n` (the literal magic) with "Malformed package file"; this
+# dump lets us verify from CI logs without downloading the artifact.
+for ipk in "$OUT"/*.ipk; do
+    [[ -f "$ipk" ]] || continue
+    echo
+    echo "=== ipk sanity check: $(basename "$ipk") ==="
+    echo "    size:    $(wc -c < "$ipk" | tr -d ' ') bytes"
+    echo "    magic:   $(head -c 8 "$ipk" | od -c -An | tr -s ' ')"
+    echo "    members:"
+    ar t "$ipk" 2>&1 | sed 's/^/      /'
+done
