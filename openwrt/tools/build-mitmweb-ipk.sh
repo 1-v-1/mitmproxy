@@ -186,19 +186,22 @@ EOF
         install -m "$mode" "$src" "$root/data$dst"
     done
 
-    # Pack: control.tar.gz + data.tar.gz + debian-binary -> ar.
+    # Pack: control.tar.gz + data.tar.gz + debian-binary -> gzip-of-tar.
     # Two compatibility shims here that ipkg-build also relies on:
     #   * `tar --format=ustar --no-xattrs --no-acls` — forces POSIX ustar
     #     tar format with no extended headers, no xattrs, no ACLs. GNU tar
     #     on a modern runner defaults to GNU format with extra pax
     #     headers, which older opkg parsers can't read and silently fail.
-    #   * `chmod 755 control/postinst control/prerm` after `tar`-ing —
-    #     opkg extracts scripts with their original mode and refuses to
-    #     execute non-0755 files (most ipks on disk have scripts at 755
-    #     because ipkg-build chmods them). Without this the package
-    #     installs but the postinst silently never runs.
-    (cd "$root/control" && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/control.tar.gz" .)
+    #   * `chmod 755 postinst prerm` BEFORE tar-ing — opkg extracts
+    #     scripts with their original mode and refuses to execute
+    #     non-0755 files (errs with "Permission denied" / exit 126).
+    #     CRITICAL: must happen BEFORE the tar command below, otherwise
+    #     the tarball captures 0644 and chmod is a no-op for the
+    #     installed package. ipkg-build chmods scripts at this same
+    #     stage; the previous version of this script chmod-ed AFTER
+    #     tar-ing, which silently did nothing.
     chmod 0755 "$root/control/postinst" "$root/control/prerm" 2>/dev/null || true
+    (cd "$root/control" && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/control.tar.gz" .)
     (cd "$root/data"    && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/data.tar.gz"    .)
     printf '2.0\n' > "$WORK/debian-binary"
 
