@@ -174,6 +174,27 @@ EOF
 /etc/init.d/mitmweb disable >/dev/null 2>&1 || true
 exit 0
 EOF
+        # OpenWrt's ipkg-build also includes these even when empty:
+        # conffiles lists user-editable config files (none for mitmweb
+        # yet, but the empty file must exist); postinst-pkg / prerm-pkg
+        # are "package-level" hooks that run during upgrades too
+        # (mitmweb has nothing to do there, but the empty stubs must
+        # be present); postrm runs after the package is removed.
+        # Some opkg forks choke when these are missing — match
+        # ipkg-build's output 1:1.
+        : > "$root/control/conffiles"
+        cat > "$root/control/postrm" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+        cat > "$root/control/postinst-pkg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+        cat > "$root/control/prerm-pkg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
     fi
 
     # Lay out data tree from (src, dst, mode) triples.
@@ -200,7 +221,10 @@ EOF
     #     installed package. ipkg-build chmods scripts at this same
     #     stage; the previous version of this script chmod-ed AFTER
     #     tar-ing, which silently did nothing.
-    chmod 0755 "$root/control/postinst" "$root/control/prerm" 2>/dev/null || true
+    chmod 0755 "$root/control/postinst" "$root/control/prerm" \
+              "$root/control/postrm" \
+              "$root/control/postinst-pkg" \
+              "$root/control/prerm-pkg" 2>/dev/null || true
     (cd "$root/control" && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/control.tar.gz" .)
     (cd "$root/data"    && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/data.tar.gz"    .)
     printf '2.0\n' > "$WORK/debian-binary"
