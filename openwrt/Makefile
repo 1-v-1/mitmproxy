@@ -123,7 +123,13 @@ define Build/Compile
 	# packages avoid this by piping xzcat into a vanilla `tar -xf -`;
 	# do the same here. (Use literal `tar`, NOT $(TAR) — TAR is
 	# undefined in this SDK, see commit e0ead1d62.)
-	xzcat $(TARBALL_PATH) | tar -C $(PKG_BUILD_DIR) --strip-components=1 -xf -
+	# shell wrapper so the whole pipeline + ls -la + stat run in ONE shell
+	# invocation — Make recipe lines each get their own shell, so a stat
+	# or echo on the next line wouldn't see the file we just extracted.
+	xzcat $(TARBALL_PATH) | tar -C $(PKG_BUILD_DIR) --strip-components=1 -xf - && \
+	echo "=== post-extract: $(PKG_BUILD_DIR) contents ===" && \
+	ls -la "$(PKG_BUILD_DIR)/" && \
+	echo "=== mitmweb.bin size: $$(stat -c %s $(PKG_BUILD_DIR)/mitmweb.bin 2>/dev/null || echo MISSING) ==="
 endef
 
 define Package/mitmweb/install
