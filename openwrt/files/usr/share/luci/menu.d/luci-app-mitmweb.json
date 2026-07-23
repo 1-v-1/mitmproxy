@@ -3,8 +3,7 @@
 		"title": "MITM Proxy",
 		"order": 60,
 		"action": {
-			"type": "view",
-			"path": "services/mitmweb/status"
+			"type": "firstchild"
 		},
 		"depends": {
 			"acl": [ "luci-app-mitmweb" ]

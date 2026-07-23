@@ -21,19 +21,24 @@ function index()
         return
     end
 
-    local root = entry({"admin", "services", "mitmweb"}, cbi("mitmweb"),
-                       _("MITM Proxy"), 60)
-    root.dependent = true
+    local root = entry({"admin", "services", "mitmweb"}, firstchild(), _("MITM Proxy"), 60)
     root.acl_depends = { "luci-app-mitmweb" }
 
-    entry({"admin", "services", "mitmweb", "status"},      cbi("mitmweb"), _("Status"),              1)
-    entry({"admin", "services", "mitmweb", "basic"},       cbi("mitmweb"), _("Basic Settings"),      2)
-    entry({"admin", "services", "mitmweb", "transparent"}, cbi("mitmweb"), _("Transparent Proxy"),   3)
+    -- The first three entries are the actual menu sub-tabs (cbi model);
+    -- the remaining five are leaf actions hit by the Status tab's XHR
+    -- and the cert / start-stop / regen-CA buttons. With firstchild()
+    -- the parent path /admin/services/mitmweb renders the first cbi
+    -- sub-entry (status) so the menu JSON's `view` action still
+    -- works, while the full paths below keep routing to their own
+    -- targets instead of being shadowed by the parent.
+    entry({"admin", "services", "mitmweb", "status"},      cbi("mitmweb"), _("Status"),              1).acl_depends = { "luci-app-mitmweb" }
+    entry({"admin", "services", "mitmweb", "basic"},       cbi("mitmweb"), _("Basic Settings"),      2).acl_depends = { "luci-app-mitmweb" }
+    entry({"admin", "services", "mitmweb", "transparent"}, cbi("mitmweb"), _("Transparent Proxy"),   3).acl_depends = { "luci-app-mitmweb" }
 
-    entry({"admin", "services", "mitmweb", "status_json"}, call("action_status")).leaf = true
-    entry({"admin", "services", "mitmweb", "cert"},        call("action_cert")).leaf   = true
-    entry({"admin", "services", "mitmweb", "logtail"},     call("action_logtail")).leaf = true
-    entry({"admin", "services", "mitmweb", "control"},     call("action_control")).leaf = true
+    entry({"admin", "services", "mitmweb", "status_json"}, call("action_status")).leaf   = true
+    entry({"admin", "services", "mitmweb", "cert"},        call("action_cert")).leaf     = true
+    entry({"admin", "services", "mitmweb", "logtail"},     call("action_logtail")).leaf  = true
+    entry({"admin", "services", "mitmweb", "control"},     call("action_control")).leaf  = true
     entry({"admin", "services", "mitmweb", "regen_ca"},    call("action_regen_ca")).leaf = true
 end
 
