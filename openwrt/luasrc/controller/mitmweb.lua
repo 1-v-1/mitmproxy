@@ -79,9 +79,11 @@ end
 
 function action_status()
     local cur = uci_cursor()
-    local mode_str = uci_or_default(cur, "mode", "")
-    -- Trim leading/trailing whitespace; UCI returns space-separated list.
-    mode_str = mode_str:gsub("^%s+", ""):gsub("%s+$", "")
+    -- `mode` is a list-type option (one entry per --mode flag), so
+    -- `cur:get(...)` returns nil — use get_list() and join with spaces
+    -- (mitmweb's behaviour for MultiValue: --mode can repeat).
+    local mode_list = cur:get_list("mitmweb", "main", "mode") or {}
+    local mode_str = table.concat(mode_list, " ")
 
     local pids = running_pids()
 
