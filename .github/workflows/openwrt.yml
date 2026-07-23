@@ -158,14 +158,30 @@ jobs:
       # refuses to operate on a world-writable ~/.cargo
       # (rust-lang/cargo#10546). chown is also cleaner — no sticky-bit /
       # umask surprises for pip's atomic-rename dance.
+      #
+      # `mkdir -p` first: on a true cold-cache run (newly-added cache
+      # path, or a fresh runner that has never executed this workflow),
+      # `actions/cache` does NOT create the directory when there is
+      # nothing to restore — and `chown -R` then errors out with
+      # "No such file or directory" on the missing path. mkdir -p is
+      # idempotent so it no-ops on warm restores, and pre-existing
+      # files from a cache hit are unaffected.
       - name: Make caches writable for root inside the container
         run: |
+          mkdir -p \
+              "$HOME/.cargo" \
+              "$HOME/.cargo-target" \
+              "$HOME/.rustup" \
+              "$HOME/.cache/pip" \
+              "$HOME/.cache/pyinstaller" \
+              "$HOME/apk-cache"
           sudo chown -R 0:0 \
               "$HOME/.cargo" \
               "$HOME/.cargo-target" \
               "$HOME/.rustup" \
               "$HOME/.cache/pip" \
-              "$HOME/.cache/pyinstaller"
+              "$HOME/.cache/pyinstaller" \
+              "$HOME/apk-cache"
 
       - name: Build mitmweb ELF (musl, ${{ matrix.arch }})
         run: |
