@@ -1,10 +1,3 @@
-<%#
- This is a CBI *option* template (wired via o.template = "mitmweb/status"),
- so it is rendered INSIDE the CBI map/form — it must be a bare fragment.
- Do NOT include <%+header%>/<%+footer%> or a name="content" heading here:
- those belong to standalone views and re-including the page chrome inside
- the form crashes the template engine.
--%>
 <style>
   .mitmweb-grid { display:grid; grid-template-columns:max-content 1fr; gap:.4em 1em; }
   .mitmweb-grid dt { font-weight:600; }
@@ -127,7 +120,7 @@
     if (!t || !t.dataset.cmd) return;
     var cmd = t.dataset.cmd;
     if (cmd === 'regen') {
-      if (!confirm('<%:This will invalidate the previously installed CA. Clients must reinstall the new certificate to continue trusting mitmproxy. Proceed?%>'.replace(/&lt;%/g, '<%').replace(/%\&gt;/g, '%>'))) return;
+      if (!confirm('<%:This will invalidate the previously installed CA. Clients must reinstall the new certificate to continue trusting mitmproxy. Proceed?%>')) return;
       sendCmd('regen_ca');
     } else {
       sendCmd('control?cmd=' + encodeURIComponent(cmd));
