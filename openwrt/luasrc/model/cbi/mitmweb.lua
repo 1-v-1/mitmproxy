@@ -1,6 +1,6 @@
 -- /usr/lib/lua/luci/model/cbi/mitmweb.lua
 --
--- CBI model for mitmweb. Single TypedSection "main" with three tabs.
+-- CBI model for mitmweb. Three TypedSections (type "mitmweb") = three tabs.
 -- Status tab pulls data via XHR from /admin/services/mitmweb/status_json.
 -- Basic tab exposes every UCI option in the config file.
 -- Transparent tab is mode-gated (only visible when mode includes "transparent").
@@ -12,13 +12,19 @@ m = Map("mitmweb", translate("MITM Proxy"),
 m:chain("luci")
 
 -- ===========================================================================
--- Status section: anonymous + custom template. Renders the HTML
--- fragment at view/mitmweb/status.htm which XHR-fetches
--- /admin/services/mitmweb/status_json. With `anonymous = true` LuCI
--- shows only the template (no form fields here — the actual
--- settings live in the Basic Settings section below).
+-- All three sections are TypedSections bound to the UCI section *type*
+-- `mitmweb` (the config file declares `config mitmweb 'main'` — type is
+-- `mitmweb`, name is `main`). The type MUST match, otherwise LuCI finds
+-- no matching section and renders the "尚无任何配置 / no configuration
+-- yet" placeholder for every tab. `anonymous = true` + `addremove =
+-- false` render the single fixed `main` section's fields without a name
+-- header or an add/remove UI (this does NOT suppress option fields —
+-- see luci-app-gatesentry, which drives 20+ fields the same way).
+--
+-- Status section: renders the HTML fragment at view/mitmweb/status.htm
+-- which XHR-fetches /admin/services/mitmweb/status_json.
 -- ===========================================================================
-local s_status = m:section(TypedSection, "main", translate("Status"))
+local s_status = m:section(TypedSection, "mitmweb", translate("Status"))
 s_status.anonymous = true
 s_status.addremove = false
 
@@ -27,13 +33,12 @@ o.rmempty = true
 o.template = "mitmweb/status"
 
 -- ===========================================================================
--- Basic Settings section: NOT anonymous. All actual UCI options live
--- here. `anonymous` would hide the section header AND every field
--- (it forces "no config" mode for read-only display sections like
--- Status), so we deliberately do NOT set it on this section.
+-- Basic Settings section: all actual UCI options live here.
 -- ===========================================================================
-local s_basic = m:section(TypedSection, "main", translate("Basic Settings"),
+local s_basic = m:section(TypedSection, "mitmweb", translate("Basic Settings"),
     translate("Mode, ports, web UI, TLS, lifecycle, and runtime tuning. Anything you set here becomes a mitmproxy CLI flag at next start."))
+s_basic.anonymous = true
+s_basic.addremove = false
 
 --    --mode is MultiValue in UCI; mitmproxy supports multiple --mode flags.
 o = s_basic:option(ListValue, "mode", translate("Proxy mode"),
@@ -177,7 +182,7 @@ o.default  = ""
 -- Transparent Proxy section: anonymous + mode-gated. Description-only
 -- when mode != "transparent", full form when it is.
 -- ===========================================================================
-local s2 = m:section(TypedSection, "main", translate("Transparent Proxy"),
+local s2 = m:section(TypedSection, "mitmweb", translate("Transparent Proxy"),
                translate("Only effective when 'transparent' is one of the modes in the Basic tab. Sets up iptables nat:MITMWEB chain to REDIRECT TCP:80 and TCP:443."))
 s2.anonymous = true
 s2.addremove = false
