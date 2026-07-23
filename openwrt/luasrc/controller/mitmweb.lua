@@ -142,7 +142,15 @@ function action_cert(fmt)
         key = "mitmproxy-ca-private-key.pem",
     }
 
-    fmt = fmt or "pem"
+    -- The Status tab's download buttons link to
+    -- `/admin/services/mitmweb/cert?fmt=pem|p12|cer|key` — that's a
+    -- QUERY-string `fmt`, not a path segment. `action_cert(fmt)` makes
+    -- `fmt` a *path* parameter, which is nil here, so every download
+    -- silently fell back to PEM. Read it from formvalue() (which
+    -- covers both POST body and GET query string) instead. The path
+    -- argument is left as a fallback so `/cert/p12` still works if
+    -- anyone hand-types it.
+    fmt = fmt or luci.http.formvalue("fmt") or "pem"
     local fname = files[fmt]
     if not fname then
         luci.http.status(400, "unknown fmt")
@@ -170,7 +178,16 @@ end
 
 function action_control(cmd)
     local sys = require("luci.sys")
-    cmd = cmd or "status"
+    -- The Status tab's Start/Stop/Restart/Enable/Disable buttons POST to
+    -- `/admin/services/mitmweb/control?cmd=start` — that's a
+    -- QUERY-string `cmd`, not a path segment. `action_control(cmd)` makes
+    -- `cmd` a *path* parameter, which is nil here, so every button
+    -- silently fell through the if-elseif chain (cmd defaulted to
+    -- "status", which matches none of the cases) and did literally
+    -- nothing. Read it from formvalue() (which covers both POST body
+    -- and GET query string) instead. The path argument is left as a
+    -- fallback so `/control/start` still works if anyone hand-types it.
+    cmd = cmd or luci.http.formvalue("cmd") or "status"
     local ok = false
     if     cmd == "start"   then ok = sys.call("/etc/init.d/mitmweb start")   == 0
     elseif cmd == "stop"    then ok = sys.call("/etc/init.d/mitmweb stop")    == 0
