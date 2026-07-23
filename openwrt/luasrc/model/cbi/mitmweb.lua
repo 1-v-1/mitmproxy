@@ -88,10 +88,6 @@ o = s_basic:option(TextValue, "mode_custom_extra",
 o.rows = 4
 o.default = ""
 
--- Separator
-o = s_basic:option(DummyValue, "_sep_bindings", " ")
-o.template = "cbi/simpleform_section"
-
 o = s_basic:option(Value, "listen_host", translate("Global listen address (default for all modes)"),
              translate("Leave empty to bind on all interfaces. Ignored if a per-mode port override is set."))
 o.datatype = "ipaddr"
