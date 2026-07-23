@@ -1,5 +1,10 @@
-<%+header%>
-
+<%#
+ This is a CBI *option* template (wired via o.template = "mitmweb/status"),
+ so it is rendered INSIDE the CBI map/form — it must be a bare fragment.
+ Do NOT include <%+header%>/<%+footer%> or a name="content" heading here:
+ those belong to standalone views and re-including the page chrome inside
+ the form crashes the template engine.
+-%>
 <style>
   .mitmweb-grid { display:grid; grid-template-columns:max-content 1fr; gap:.4em 1em; }
   .mitmweb-grid dt { font-weight:600; }
@@ -34,8 +39,6 @@
     word-break:break-all;
   }
 </style>
-
-<h2 name="content"><%:Status%></h2>
 
 <div id="mitmweb-status-root">
   <p><em><%:Loading...%></em></p>
@@ -136,5 +139,3 @@
   setInterval(refresh, 5000);
 })();
 </script>
-
-<%+footer%>
