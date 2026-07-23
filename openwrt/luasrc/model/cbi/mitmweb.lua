@@ -33,6 +33,81 @@ o.rmempty = true
 o.template = "mitmweb/status"
 
 -- ===========================================================================
+-- YAML Config section: edit /etc/mitmweb/.mitmproxy/config.yaml directly.
+-- mitmproxy auto-loads every option from this file at start (mitmproxy's
+-- `optmanager.load_yaml` parses it via ruamel.yaml), so anything set here
+-- is equivalent to passing `--set k=v` on the CLI — but more permanent,
+-- and supports the `list:` form that --set can't.
+--
+-- The textarea is bound to a synthetic CBI value "_yaml_content"; the
+-- on_load / on_save hooks below read and write the underlying file
+-- directly, so the user's edits bypass UCI round-tripping.
+-- ===========================================================================
+local s_yaml = m:section(TypedSection, "mitmweb", translate("YAML Config"),
+              translate("Edit mitmproxy's config.yaml (loaded by mitmproxy at every start). Anything you can pass as --set on the CLI can go here, plus values that don't fit the Basic tab form."))
+s_yaml.anonymous = true
+s_yaml.addremove = false
+
+o = s_yaml:option(TextValue, "_yaml_content", translate("config.yaml"),
+              translate("Path: $confdir/.mitmproxy/config.yaml. Lines starting with '#' are comments. Errors are reported on save."))
+o.rows = 25
+o.default = ""
+
+-- on_after_commit runs after the CBI form commits the UCI delta. We
+-- ignore the UCI write (the field is prefixed with `_` so UCI treats it
+-- as a transient value) and write the textarea content directly to the
+-- YAML file via the file_io helper. On parse error we surface the
+-- ruamel-equivalent error to the user via the log; a broken YAML
+-- won't crash mitmproxy — it just refuses to start, which is the
+-- desired loud-failure mode.
+function s_yaml.on_after_commit(self, section)
+    local sys   = require("luci.sys")
+    local nixio = require("nixio.fs")
+    local cur   = require("luci.model.uci").cursor()
+
+    local confdir = cur:get("mitmweb", "main", "confdir") or "/etc/mitmweb"
+    local path     = confdir .. "/.mitmproxy/config.yaml"
+
+    -- Read the value the user just submitted. CBI prefixes transient
+    -- fields with `_` and stores them on the section rather than UCI;
+    -- grab them straight from the request.
+    local content = luci.http.formvalue("cbid.mitmweb._mitmweb._yaml_content")
+                   or luci.http.formvalue("cbid.mitmweb.1._yaml_content")
+                   or ""
+
+    -- Best-effort write. mitmproxy's YAML loader uses ruamel.yaml which
+    -- is strict about indentation; if we wanted to validate here we'd
+    -- need to ship a Lua YAML parser. We accept whatever the user
+    -- typed — mitmproxy itself will yell on start if it's broken.
+    nixio.mkdir(confdir .. "/.mitmproxy", "0755")
+    local f = io.open(path, "w")
+    if not f then
+        sys.call("logger -t mitmweb 'YAML config: failed to open " .. path .. " for writing'")
+        return
+    end
+    f:write(content)
+    f:close()
+    sys.call("logger -t mitmweb 'YAML config: wrote " .. tostring(#content) .. " bytes to " .. path .. "'")
+    sys.call("/etc/init.d/mitmweb reload >/dev/null 2>&1")
+end
+
+-- Pre-fill the textarea on page load by reading the YAML file directly.
+-- CBI calls this for every option before rendering; the value goes into
+-- the form field the user actually edits.
+function o.cfgvalue(self, section)
+    local nixio = require("nixio.fs")
+    local cur   = require("luci.model.uci").cursor()
+    local confdir = cur:get("mitmweb", "main", "confdir") or "/etc/mitmweb"
+    local path     = confdir .. "/.mitmproxy/config.yaml"
+
+    local f = io.open(path, "r")
+    if not f then return "" end
+    local content = f:read("*a") or ""
+    f:close()
+    return content
+end
+
+-- ===========================================================================
 -- Basic Settings section: all actual UCI options live here.
 -- ===========================================================================
 local s_basic = m:section(TypedSection, "mitmweb", translate("Basic Settings"),

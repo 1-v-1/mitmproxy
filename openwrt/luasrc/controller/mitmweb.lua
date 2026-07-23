@@ -34,6 +34,7 @@ function index()
     entry({"admin", "services", "mitmweb", "status"},      cbi("mitmweb"), _("Status"),              1).acl_depends = { "luci-app-mitmweb" }
     entry({"admin", "services", "mitmweb", "basic"},       cbi("mitmweb"), _("Basic Settings"),      2).acl_depends = { "luci-app-mitmweb" }
     entry({"admin", "services", "mitmweb", "transparent"}, cbi("mitmweb"), _("Transparent Proxy"),   3).acl_depends = { "luci-app-mitmweb" }
+    entry({"admin", "services", "mitmweb", "yaml"},        cbi("mitmweb"), _("YAML Config"),        4).acl_depends = { "luci-app-mitmweb" }
 
     entry({"admin", "services", "mitmweb", "status_json"}, call("action_status")).leaf   = true
     entry({"admin", "services", "mitmweb", "cert"},        call("action_cert")).leaf     = true
