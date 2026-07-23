@@ -21,7 +21,7 @@ function index()
         return
     end
 
-    local root = entry({"admin", "services", "mitmweb"}, alias("admin", "services", "mitmweb", "status"),
+    local root = entry({"admin", "services", "mitmweb"}, cbi("mitmweb"),
                        _("MITM Proxy"), 60)
     root.dependent = true
     root.acl_depends = { "luci-app-mitmweb" }
