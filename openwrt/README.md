@@ -198,8 +198,11 @@ openwrt/
 
 - **Only `mitmweb`** is shipped. The console `mitmproxy` and `mitmdump` are
   not in the ipk. Run the upstream Docker image if you need them.
-- **Requires OpenWrt ≥ 21.02** (uses `iptables-nft` on a musl libc kernel;
-  19.07 is unsupported).
+- **Requires OpenWrt ≥ 24.10** (the bundled CPython 3.13 binary uses
+  `pwritev2`, which OpenWrt 23.05's musl 1.2.4 doesn't export; on boot
+  the binary aborts with `Error relocating ... pwritev2: symbol not
+  found`). OpenWrt 24.10 ships musl 1.2.5; 23.05 will not work even
+  with all dependencies satisfied.
 - **Transparent HTTPS interception needs every LAN client to trust the
   mitmproxy CA.** Until they do, clients see `ERR_CERT_AUTHORITY_INVALID`.
 - **procd only** — no systemd / SysV init compatibility.
