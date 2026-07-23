@@ -201,6 +201,75 @@ build_inside() {
         return 1
     }
 
+    # Install the *Python* part of mitmproxy-linux (the `mitmproxy_linux`
+    # package: ~30 lines of `executable_path()` glue that mitmproxy_rs's
+    # Rust extension imports at load time). The wheel also contains the
+    # eBPF redirector binary, which we DO NOT ship (it needs the musl-
+    # uninstrumented `bpfel-unknown-none` nightly toolchain). Without
+    # this step, mitmproxy_rs.abi3.so raises ModuleNotFoundError: No
+    # module named 'mitmproxy_linux' the first time mode_specs.py
+    # imports it.
+    #
+    # We can't just `pip install mitmproxy_linux`: there's no musl wheel
+    # (only glibc manylinux), so pip falls back to building the eBPF
+    # binary from source — which needs `cargo install bpf-linker` plus
+    # a nightly toolchain. We sidestep all of that by directly grabbing
+    # the manylinux wheel from PyPI's CDN and unpacking only the
+    # `mitmproxy_linux/*.py` files into site-packages.
+    local ml_ver ml_url ml_wheel
+    # Pin to the same version mitmproxy_rs pulls in (0.12.x); the build
+    # script hardcodes the version because we install mitmproxy_rs with
+    # --no-deps, which means there's no Requires-Dist metadata to read.
+    # Bumping requires also bumping mitmproxy_linux on this line.
+    ml_ver="0.12.11"
+    echo ">>> fetching mitmproxy_linux==${ml_ver} manylinux wheel"
+    # Resolve the absolute URL from PyPI's JSON metadata. The `urls[]`
+    # entries already include the `https://files.pythonhosted.org/...`
+    # prefix — don't prepend it again.
+    ml_url="$(curl -sSL "https://pypi.org/pypi/mitmproxy_linux/${ml_ver}/json" \
+        | python3 -c 'import json,sys; \
+            d=json.load(sys.stdin); \
+            urls=[u["url"] for u in d["urls"] if u["filename"].endswith("x86_64.whl")]; \
+            print(urls[0] if urls else "")')"
+    if [ -z "$ml_url" ]; then
+        echo "ERROR: could not resolve mitmproxy_linux==${ml_ver} manylinux wheel URL" >&2
+        return 1
+    fi
+    mkdir -p /tmp/_ml_dl /tmp/_ml_stage
+    if ! curl -sSfL --retry 3 -o /tmp/_ml_dl/ml.whl "$ml_url"; then
+        echo "ERROR: failed to download $ml_url" >&2
+        return 1
+    fi
+    # Extract just the Python files. The wheel also carries an
+    # `mitmproxy-linux-redirector` ELF which we deliberately discard.
+    python3 - "$ml_ver" <<'PYEOF'
+import os, sys, zipfile
+ver = sys.argv[1]
+wheel = "/tmp/_ml_dl/ml.whl"
+out = "/tmp/_ml_stage"
+with zipfile.ZipFile(wheel) as z:
+    for info in z.infolist():
+        # Keep the package's Python source.
+        if info.filename.startswith("mitmproxy_linux/") and info.filename.endswith(".py"):
+            z.extract(info, out)
+dist = f"mitmproxy_linux-{ver}.dist-info"
+# Emit a minimal dist-info so `pip show` works if anyone probes it.
+os.makedirs(os.path.join(out, dist), exist_ok=True)
+with open(os.path.join(out, dist, "METADATA"), "w") as f:
+    f.write(f"Metadata-Version: 2.1\nName: mitmproxy_linux\nVersion: {ver}\n")
+with open(os.path.join(out, dist, "WHEEL"), "w") as f:
+    f.write("Wheel-Version: 1.0\nGenerator: openwrt/tools/build-mitmweb-musl.sh\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+PYEOF
+    if [ ! -d /tmp/_ml_stage/mitmproxy_linux ]; then
+        echo "ERROR: no mitmproxy_linux package extracted from wheel" >&2
+        return 1
+    fi
+    local purelib
+    purelib="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+    cp -a /tmp/_ml_stage/mitmproxy_linux "$purelib/" \
+        || { echo "ERROR: failed to promote mitmproxy_linux stub" >&2; return 1; }
+    rm -rf /tmp/_ml_dl /tmp/_ml_stage
+
     # Install every other runtime dep with normal resolution. None of them
     # transitively depend on mitmproxy-linux, so they all install cleanly.
     pip install --break-system-packages \
