@@ -86,17 +86,22 @@ jobs:
       # ------------------------------------------------------------------------
       # Restore build caches from previous CI runs. The Alpine container
       # bind-mounts these into itself (see build-mitmweb-musl.sh), so cargo
-      # + rustup + pip + PyInstaller all pick up where the last successful
-      # build left off. Saves ~5 min on a cache hit.
+      # + rustup + pip + PyInstaller + apk all pick up where the last
+      # successful build left off.
       #
       # Cache keys hash the inputs that affect each cache's contents:
       #   * cargo/rustup: pyproject.toml — Cargo.toml/Cargo.lock live in
       #     the mitmproxy_rs sdist and aren't on disk here, so pyproject
       #     is the best signal we have for "the dep set changed".
+      #   * cargo/target: same reasoning — the Rust build products for
+      #     mitmproxy_rs (incremental compilation lives or dies here).
       #   * pip: pyproject.toml — same reasoning.
       #   * pyinstaller: pyproject.toml + release/specs/mitmweb — the
       #     PyInstaller binary cache is keyed by the entry-point script
       #     hash and PyInstaller's own version.
+      #   * apk: the apk package list lives in build-mitmweb-musl.sh, not
+      #     in repo files, so key on runner+arch; stale entries (unused
+      #     packages on disk) are harmless.
       # `release/specs/mitmweb` only affects the pyinstaller cache because
       # it's only used as the PyInstaller entry point, never imported.
       # ------------------------------------------------------------------------
@@ -109,6 +114,14 @@ jobs:
           key: cargo-v1-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             cargo-v1-${{ runner.os }}-${{ matrix.arch }}-
+
+      - name: Restore cargo target cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo-target
+          key: cargo-target-v1-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            cargo-target-v1-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Restore pip cache
         uses: actions/cache@v4
@@ -126,6 +139,34 @@ jobs:
           restore-keys: |
             pyinst-v1-${{ runner.os }}-${{ matrix.arch }}-
 
+      - name: Restore apk package cache
+        uses: actions/cache@v4
+        with:
+          path: ~/apk-cache
+          key: apk-v1-${{ runner.os }}-${{ matrix.arch }}
+          restore-keys: |
+            apk-v1-${{ runner.os }}-${{ matrix.arch }}-
+
+      # actions/cache restores the above as the runner user (uid 1001).
+      # The Alpine container runs as root and bind-mounts them onto
+      # /root/..., so pip/cargo see "owned by someone else, not writable"
+      # and silently disable their caches (pip emits a WARNING, cargo
+      # is silent about its .crates.toml/.crates2.json write failures).
+      # chown to root so the in-container processes can write.
+      #
+      # We use `chown -R 0:0` rather than `chmod -R 0777` because cargo
+      # refuses to operate on a world-writable ~/.cargo
+      # (rust-lang/cargo#10546). chown is also cleaner — no sticky-bit /
+      # umask surprises for pip's atomic-rename dance.
+      - name: Make caches writable for root inside the container
+        run: |
+          sudo chown -R 0:0 \
+              "$HOME/.cargo" \
+              "$HOME/.cargo-target" \
+              "$HOME/.rustup" \
+              "$HOME/.cache/pip" \
+              "$HOME/.cache/pyinstaller"
+
       - name: Build mitmweb ELF (musl, ${{ matrix.arch }})
         run: |
           # Use ${HOME} (always /home/runner on hosted Linux runners) rather
@@ -133,9 +174,11 @@ jobs:
           # an empty string on some runner images, which then concatenated
           # to '/.cargo' and broke the mkdir in the script below.
           export CARGO_HOME="${HOME}/.cargo"
+          export CARGO_TARGET_DIR="${HOME}/.cargo-target"
           export RUSTUP_HOME="${HOME}/.rustup"
           export PIP_CACHE_DIR="${HOME}/.cache/pip"
           export PYI_CACHE_DIR="${HOME}/.cache/pyinstaller"
+          export APK_CACHE_DIR="${HOME}/apk-cache"
           chmod +x openwrt/tools/build-mitmweb-musl.sh
           cd openwrt/tools
           ./build-mitmweb-musl.sh \

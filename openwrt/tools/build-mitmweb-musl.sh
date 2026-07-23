@@ -102,9 +102,12 @@ echo "    output:  $binary_path"
 : "${RUSTUP_HOME:=$HOME/.rustup}"
 : "${PIP_CACHE_DIR:=$HOME/.cache/pip}"
 : "${PYI_CACHE_DIR:=$HOME/.cache/pyinstaller}"
+: "${CARGO_TARGET_DIR:=$HOME/.cargo-target}"
+: "${APK_CACHE_DIR:=$HOME/apk-cache}"
 # Pre-create on the host so the bind-mount has a directory to mount on
 # the very first (cold-cache) run.
-mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$PIP_CACHE_DIR" "$PYI_CACHE_DIR"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$PIP_CACHE_DIR" "$PYI_CACHE_DIR" \
+         "$CARGO_TARGET_DIR" "$APK_CACHE_DIR"
 
 # ---------------------------------------------------------------------------
 # Step 1: Resolve & install local mitmproxy + deps inside the builder.
@@ -128,7 +131,13 @@ build_inside() {
     # argon2-cffi, Brotli, bcrypt, ruamel.yaml, zstandard, mitmproxy-linux.
     # They all need a C toolchain + openssl + libffi headers + (optionally)
     # linux-headers for kqueue-style stuff.
-    apk add --no-cache \
+    #
+    # NOTE: deliberately NOT using `apk add --no-cache` — we want apk to
+    # keep downloaded packages in /var/cache/apk so the bind-mount from
+    # the runner (which actions/cache persists) can reuse them on the
+    # next run. Without this, every CI run re-downloads ~30 MB of
+    # toolchain packages from the Alpine mirror.
+    apk add \
         binutils \
         git \
         build-base \
@@ -298,10 +307,13 @@ if [[ $USE_DOCKER -eq 1 ]]; then
         --platform "$docker_platform" \
         -e PYINSTALLER_VERSION="$PYINSTALLER_VERSION" \
         -e PYTHON_VERSION="$PYTHON_VERSION" \
+        -e CARGO_TARGET_DIR="$CARGO_TARGET_DIR" \
         -v "$CARGO_HOME:/root/.cargo" \
         -v "$RUSTUP_HOME:/root/.rustup" \
         -v "$PIP_CACHE_DIR:/root/.cache/pip" \
         -v "$PYI_CACHE_DIR:/root/.cache/pyinstaller" \
+        -v "$CARGO_TARGET_DIR:/root/.cargo-target" \
+        -v "$APK_CACHE_DIR:/var/cache/apk" \
         -v "$repo_root:/src" \
         -v "$OUT:/tmp/out" \
         -w /tmp \
