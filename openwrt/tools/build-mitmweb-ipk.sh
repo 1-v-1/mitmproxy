@@ -171,6 +171,15 @@ build_ipk() {
 #!/bin/sh
 [ -x "$0" ] || chmod 0755 "$0"
 [ -x "$0" ] || exec /bin/sh "$0" "$@"
+# Create the mitmweb user/group if they don't exist. The init script and
+# uci-defaults/99-mitmweb-perms both `chown mitmweb:mitmweb` into the
+# confdir; without these accounts the chowns fail silently and the
+# CA private key ends up owned by the build-host uid baked into the
+# tarball (501 on macOS). `id mitmweb` returns non-zero only when the
+# user is missing on busybox; groupid 472 matches the UID reserved in
+# the OpenWrt wiki for "network daemons".
+grep -q '^mitmweb:' /etc/passwd || echo 'mitmweb:x:472:472:mitmweb:/etc/mitmweb:/sbin/nologin' >> /etc/passwd
+grep -q '^mitmweb:' /etc/group || echo 'mitmweb:x:472:' >> /etc/group
 chown -R mitmweb:mitmweb /etc/mitmweb 2>/dev/null || true
 chmod 0750 /etc/mitmweb
 mkdir -p /var/log
@@ -237,8 +246,16 @@ EOF
               "$root/control/postrm" \
               "$root/control/postinst-pkg" \
               "$root/control/prerm-pkg" 2>/dev/null || true
-    (cd "$root/control" && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/control.tar.gz" .)
-    (cd "$root/data"    && tar --format=ustar --no-xattrs --no-acls -czf "$WORK/data.tar.gz"    .)
+    (cd "$root/control" && tar --format=ustar --no-xattrs --no-acls --owner=0 --group=0 -czf "$WORK/control.tar.gz" .)
+    # --owner=0 --group=0: stamp every entry in data.tar.gz as root:root.
+    # Without these, the tar carries the build-host uid (501 on macOS,
+    # 1000 on Debian) and opkg on the target device extracts files
+    # belonging to that uid, which doesn't exist on OpenWrt. Result:
+    # /etc/mitmweb, /usr/lib/mitmweb/mitmweb.bin, etc. all end up owned
+    # by 501:20, and `chown mitmweb:mitmweb` in the postinst fails
+    # silently (mitmweb user is created by postinst now, but root:root
+    # is still the right baseline for everything before the chown).
+    (cd "$root/data"    && tar --format=ustar --no-xattrs --no-acls --owner=0 --group=0 -czf "$WORK/data.tar.gz"    .)
     printf '2.0\n' > "$WORK/debian-binary"
 
     local out_ipk="$OUT/${pkg}_${VERSION}-r1_${arch}.ipk"
@@ -294,7 +311,6 @@ build_ipk "mitmweb" "$ARCH" \
     "Package: mitmweb" \
     "Version: ${VERSION}-r1" \
     "Depends: iptables-nft, kmod-nf-nat, kmod-ipt-nat, libc, libopenssl, zlib, ca-bundle, libpthread" \
-    "Provides: libc.musl-${ARCH}.so.1" \
     "Section: net" \
     "Category: Network" \
     "Title: mitmweb (man-in-the-middle proxy web UI)" \

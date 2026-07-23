@@ -4,6 +4,16 @@
 # self-delete after they run successfully, so this is safe to leave in the
 # ipk.
 
+# Make sure the mitmweb user/group exist. The postinst creates them too,
+# but on a fresh rootfs where the package was installed but the device
+# never rebooted (e.g. `opkg install` followed by `opkg upgrade` before
+# any reboot), this is the only hook that runs. Without these accounts,
+# the chowns below silently fail and the CA private key ends up owned
+# by whatever uid was baked into the data.tar.gz at build time (501 on
+# macOS, 1000 on Debian — never 0 unless we used --owner=0 when packing).
+grep -q '^mitmweb:' /etc/passwd || echo 'mitmweb:x:472:472:mitmweb:/etc/mitmweb:/sbin/nologin' >> /etc/passwd
+grep -q '^mitmweb:' /etc/group || echo 'mitmweb:x:472:' >> /etc/group
+
 # confdir must be readable by the daemon user, but not world-readable,
 # because it holds the CA private key (mitmproxy-ca.pem).
 if [ -d /etc/mitmweb ]; then
