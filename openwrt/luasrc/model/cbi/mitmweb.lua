@@ -12,22 +12,31 @@ m = Map("mitmweb", translate("MITM Proxy"),
 m:chain("luci")
 
 -- ===========================================================================
--- Status section: read-only. Renders view/mitmweb/status.htm which XHR-fetches
--- /admin/services/mitmweb/status_json.
+-- Status section: anonymous + custom template. Renders the HTML
+-- fragment at view/mitmweb/status.htm which XHR-fetches
+-- /admin/services/mitmweb/status_json. With `anonymous = true` LuCI
+-- shows only the template (no form fields here — the actual
+-- settings live in the Basic Settings section below).
 -- ===========================================================================
-s = m:section(TypedSection, "main", translate("Status"))
-s.anonymous = true
-s.addremove = false
+local s_status = m:section(TypedSection, "main", translate("Status"))
+s_status.anonymous = true
+s_status.addremove = false
 
-o = s:option(Value, "_status", translate(" "))
+local o = s_status:option(Value, "_status", translate(" "))
 o.rmempty = true
 o.template = "mitmweb/status"
 
 -- ===========================================================================
--- Basic Settings
+-- Basic Settings section: NOT anonymous. All actual UCI options live
+-- here. `anonymous` would hide the section header AND every field
+-- (it forces "no config" mode for read-only display sections like
+-- Status), so we deliberately do NOT set it on this section.
 -- ===========================================================================
+local s_basic = m:section(TypedSection, "main", translate("Basic Settings"),
+    translate("Mode, ports, web UI, TLS, lifecycle, and runtime tuning. Anything you set here becomes a mitmproxy CLI flag at next start."))
+
 --    --mode is MultiValue in UCI; mitmproxy supports multiple --mode flags.
-o = s:option(ListValue, "mode", translate("Proxy mode"),
+o = s_basic:option(ListValue, "mode", translate("Proxy mode"),
              translate("Choose one or more. mitmweb will start one server per selected mode."))
 o:value("regular",    translate("Regular HTTP(S) proxy (port 8080)"))
 o:value("socks5",     translate("SOCKS5 proxy (port 1080)"))
@@ -38,116 +47,116 @@ o:value("local",      translate("Local loopback capture"))
 o:value("wireguard",  translate("WireGuard tunnel"))
 o:value("dns",        translate("DNS server (port 53)"))
 
-o = s:option(Value, "regular_listen_port", translate("Regular proxy port"))
+o = s_basic:option(Value, "regular_listen_port", translate("Regular proxy port"))
 o.datatype = "port"
 o.default  = 8080
 o:depends("mode", "regular")
 
-o = s:option(Value, "socks5_listen_port", translate("SOCKS5 proxy port"))
+o = s_basic:option(Value, "socks5_listen_port", translate("SOCKS5 proxy port"))
 o.datatype = "port"
 o.default  = 1080
 o:depends("mode", "socks5")
 
-o = s:option(Value, "upstream_parent_url", translate("Upstream parent URL"),
+o = s_basic:option(Value, "upstream_parent_url", translate("Upstream parent URL"),
              translate("Required if mode contains 'upstream'. Only http:// or https:// allowed — SOCKS5 not supported."))
 o.default  = ""
 o:depends("mode", "upstream")
 
-o = s:option(Value, "reverse_target", translate("Reverse proxy target URL"),
+o = s_basic:option(Value, "reverse_target", translate("Reverse proxy target URL"),
              translate("Required if mode contains 'reverse'. e.g. http://10.0.0.5:80"))
 o.default  = ""
 o:depends("mode", "reverse")
 
-o = s:option(Value, "wireguard_path", translate("WireGuard key file path"),
+o = s_basic:option(Value, "wireguard_path", translate("WireGuard key file path"),
              translate("Required if mode contains 'wireguard'."))
 o.default  = ""
 o:depends("mode", "wireguard")
 
-o = s:option(Value, "dns_listen_port", translate("DNS server port"))
+o = s_basic:option(Value, "dns_listen_port", translate("DNS server port"))
 o.datatype = "port"
 o.default  = 53
 o:depends("mode", "dns")
 
-o = s:option(TextValue, "mode_custom_extra",
+o = s_basic:option(TextValue, "mode_custom_extra",
              translate("Custom --mode specs (advanced)"),
              translate("Each non-empty, non-comment line becomes an extra --mode flag. For example: tun:utun3, reverse:https://example.com@127.0.0.1:443"))
 o.rows = 4
 o.default = ""
 
 -- Separator
-o = s:option(DummyValue, "_sep_bindings", " ")
+o = s_basic:option(DummyValue, "_sep_bindings", " ")
 o.template = "cbi/simpleform_section"
 
-o = s:option(Value, "listen_host", translate("Global listen address (default for all modes)"),
+o = s_basic:option(Value, "listen_host", translate("Global listen address (default for all modes)"),
              translate("Leave empty to bind on all interfaces. Ignored if a per-mode port override is set."))
 o.datatype = "ipaddr"
 o.default  = ""
 
-o = s:option(Value, "listen_port", translate("Global listen port"))
+o = s_basic:option(Value, "listen_port", translate("Global listen port"))
 o.datatype = "port"
 o.default  = 8080
 
 -- ---------------------------------------------------------------------------
 -- Web UI
 -- ---------------------------------------------------------------------------
-o = s:option(Value, "web_host", translate("mitmweb Web UI bind address"),
+o = s_basic:option(Value, "web_host", translate("mitmweb Web UI bind address"),
              translate("0.0.0.0 lets the LuCI tab link out to a LAN-reachable URL. 127.0.0.1 (mitmweb default) is unreachable from another device."))
 o.datatype = "ipaddr"
 o.default  = "0.0.0.0"
 
-o = s:option(Value, "web_port", translate("mitmweb Web UI port"))
+o = s_basic:option(Value, "web_port", translate("mitmweb Web UI port"))
 o.datatype = "port"
 o.default  = 8081
 
-o = s:option(Value, "web_password", translate("mitmweb Web UI password (optional)"),
+o = s_basic:option(Value, "web_password", translate("mitmweb Web UI password (optional)"),
              translate("Plain text or argon2id hash (starting with $argon2...). Empty = mitmweb generates a random token printed to the log on first start."))
 o.password = true
 o.default  = ""
 
-o = s:option(Flag, "web_debug", translate("Verbose debug logging"))
+o = s_basic:option(Flag, "web_debug", translate("Verbose debug logging"))
 o.default  = 0
 
-o = s:option(Flag, "web_open_browser", translate("Open browser on start"),
+o = s_basic:option(Flag, "web_open_browser", translate("Open browser on start"),
              translate("Leave disabled on a router — there is typically no GUI browser."))
 o.default  = 0
 
 -- ---------------------------------------------------------------------------
 -- TLS
 -- ---------------------------------------------------------------------------
-o = s:option(Flag, "ssl_insecure", translate("Skip upstream certificate validation"),
+o = s_basic:option(Flag, "ssl_insecure", translate("Skip upstream certificate validation"),
              translate("WARNING: disables TLS validation against the upstream server. Only enable on a private, trusted network."))
 o.default  = 0
 
-o = s:option(Flag, "trust_ca_system", translate("Also install CA into /etc/ssl/certs"),
+o = s_basic:option(Flag, "trust_ca_system", translate("Also install CA into /etc/ssl/certs"),
              translate("Installs mitmproxy-ca-cert.pem into the router's system trust store. Required if you want any HTTPS traffic originating from the router itself (opkg, LuCI) to flow through mitmproxy."))
 o.default  = 0
 
 -- ---------------------------------------------------------------------------
 -- Service / memory protection
 -- ---------------------------------------------------------------------------
-o = s:option(Flag, "enabled", translate("Start on boot"))
+o = s_basic:option(Flag, "enabled", translate("Start on boot"))
 o.default  = 0
 
-o = s:option(Flag, "server", translate("Run as proxy server"))
+o = s_basic:option(Flag, "server", translate("Run as proxy server"))
 o.default  = 1
 
-o = s:option(Value, "confdir", translate("Configuration &amp; CA directory"))
+o = s_basic:option(Value, "confdir", translate("Configuration &amp; CA directory"))
 o.default  = "/etc/mitmweb"
 
-o = s:option(Value, "view_max_flows", translate("Max flows kept in memory"),
+o = s_basic:option(Value, "view_max_flows", translate("Max flows kept in memory"),
              translate("FIFO cap — oldest flows evict first. Recommended: 64MB RAM → 500, 128MB → 1000, 256MB+ → 5000. 0 or empty = unlimited (will OOM on a small router)."))
 o.datatype = "uinteger"
 o.default  = 1000
 
-o = s:option(Value, "stream_large_bodies", translate("Stream large bodies to disk"),
+o = s_basic:option(Value, "stream_large_bodies", translate("Stream large bodies to disk"),
              translate("Requests/responses larger than this get streamed instead of buffered. e.g. '1m'. Empty = disabled."))
 o.default  = "1m"
 
-o = s:option(Value, "body_size_limit", translate("Body size memory limit"),
+o = s_basic:option(Value, "body_size_limit", translate("Body size memory limit"),
              translate("Reject bodies larger than this. e.g. '10m'. Empty = unlimited."))
 o.default  = "10m"
 
-o = s:option(Value, "tcp_timeout", translate("Idle TCP timeout (seconds)"),
+o = s_basic:option(Value, "tcp_timeout", translate("Idle TCP timeout (seconds)"),
              translate("Close connections idle longer than this. Default in upstream is 600; OpenWrt devices usually want 60-120 to free socket memory."))
 o.datatype = "uinteger"
 o.default  = 120
@@ -155,19 +164,20 @@ o.default  = 120
 -- ---------------------------------------------------------------------------
 -- Pass-through escape hatches
 -- ---------------------------------------------------------------------------
-o = s:option(TextValue, "extra_set",
+o = s_basic:option(TextValue, "extra_set",
              translate("Extra --set options (advanced)"),
              translate("One k=v per line; each becomes --set on the CLI. Useful for setting options this UI does not expose yet."))
 o.rows = 5
 o.default = ""
 
-o = s:option(Value, "extra_args", translate("Extra CLI args (advanced, verbatim)"))
+o = s_basic:option(Value, "extra_args", translate("Extra CLI args (advanced, verbatim)"))
 o.default  = ""
 
 -- ===========================================================================
--- Transparent Proxy
+-- Transparent Proxy section: anonymous + mode-gated. Description-only
+-- when mode != "transparent", full form when it is.
 -- ===========================================================================
-s2 = m:section(TypedSection, "main", translate("Transparent Proxy"),
+local s2 = m:section(TypedSection, "main", translate("Transparent Proxy"),
                translate("Only effective when 'transparent' is one of the modes in the Basic tab. Sets up iptables nat:MITMWEB chain to REDIRECT TCP:80 and TCP:443."))
 s2.anonymous = true
 s2.addremove = false
