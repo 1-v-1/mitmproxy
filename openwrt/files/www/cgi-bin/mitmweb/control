@@ -1,0 +1,20 @@
+#!/bin/sh
+# /www/cgi-bin/mitmweb/control — service lifecycle (start/stop/restart/enable/disable).
+#
+# ?cmd=start|stop|restart|enable|disable  →  runs the matching /etc/init.d/mitmweb
+# subcommand. Returns JSON {ok: <bool>, cmd: <string>}.
+CMD="$(echo "$QUERY_STRING" | tr '&' '\n' | sed -nE 's/^cmd=([^&]+).*/\1/p' | head -n1)"
+[ -z "$CMD" ] && CMD="status"
+
+OK="false"
+case "$CMD" in
+    start|stop|restart|enable|disable)
+        if /etc/init.d/mitmweb "$CMD" >/dev/null 2>&1; then
+            OK="true"
+        fi
+        ;;
+esac
+
+echo "Content-Type: application/json"
+echo
+echo "{\"ok\": $OK, \"cmd\": \"$CMD\"}"

@@ -1,0 +1,5 @@
+#!/bin/sh
+# /www/cgi-bin/mitmweb/logtail — last 200 lines of /var/log/mitmweb.log.
+echo "Content-Type: text/plain"
+echo
+tail -n 200 /var/log/mitmweb.log 2>/dev/null

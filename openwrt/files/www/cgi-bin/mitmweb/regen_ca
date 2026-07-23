@@ -1,0 +1,35 @@
+#!/bin/sh
+# /www/cgi-bin/mitmweb/regen_ca — delete and re-generate the CA.
+#
+# Returns JSON {old_sha: <hex|null>, new_sha: <hex|null>}.
+CONFDIR="$(uci -q get mitmweb.main.confdir 2>/dev/null || echo /etc/mitmweb)"
+CERT="$CONFDIR/.mitmproxy/mitmproxy-ca-cert.pem"
+
+OLD_SHA="null"
+if [ -f "$CERT" ]; then
+    OLD_SHA=$(openssl x509 -in "$CERT" -noout -fingerprint -sha256 2>/dev/null \
+              | sed -nE 's/^fingerprint=//p' | tr -d ' :' | tr 'A-Z' 'a-z')
+    [ -z "$OLD_SHA" ] && OLD_SHA="null" || OLD_SHA="\"$OLD_SHA\""
+fi
+
+/etc/init.d/mitmweb stop >/dev/null 2>&1
+rm -f "$CONFDIR"/.mitmproxy/mitmproxy-ca* /etc/ssl/certs/mitmproxy-ca-cert.pem 2>/dev/null
+/etc/init.d/mitmweb start >/dev/null 2>&1
+
+# Wait up to 4s for the new CA to appear (mitmproxy generates it async).
+i=0
+while [ $i -lt 20 ] && [ ! -f "$CERT" ]; do
+    sleep 0.2
+    i=$((i+1))
+done
+
+NEW_SHA="null"
+if [ -f "$CERT" ]; then
+    NEW_SHA=$(openssl x509 -in "$CERT" -noout -fingerprint -sha256 2>/dev/null \
+              | sed -nE 's/^fingerprint=//p' | tr -d ' :' | tr 'A-Z' 'a-z')
+    [ -z "$NEW_SHA" ] && NEW_SHA="null" || NEW_SHA="\"$NEW_SHA\""
+fi
+
+echo "Content-Type: application/json"
+echo
+echo "{\"old_sha\": $OLD_SHA, \"new_sha\": $NEW_SHA}"

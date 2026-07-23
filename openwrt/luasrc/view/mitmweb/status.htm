@@ -60,10 +60,10 @@
     }
 
     var certLinks =
-      '<a href="/admin/services/mitmweb/cert?fmt=pem" class="mitmweb-certlinks"><%:Download PEM%></a>' +
-      '<a href="/admin/services/mitmweb/cert?fmt=p12" class="mitmweb-certlinks"><%:Download P12%></a>' +
-      '<a href="/admin/services/mitmweb/cert?fmt=cer" class="mitmweb-certlinks"><%:Download CER%></a>' +
-      '<a href="/admin/services/mitmweb/cert?fmt=key" class="mitmweb-certlinks"><%:Download private key%></a>';
+      '<a href="/cgi-bin/mitmweb/cert?fmt=pem" class="mitmweb-certlinks"><%:Download PEM%></a>' +
+      '<a href="/cgi-bin/mitmweb/cert?fmt=p12" class="mitmweb-certlinks"><%:Download P12%></a>' +
+      '<a href="/cgi-bin/mitmweb/cert?fmt=cer" class="mitmweb-certlinks"><%:Download CER%></a>' +
+      '<a href="/cgi-bin/mitmweb/cert?fmt=key" class="mitmweb-certlinks"><%:Download private key%></a>';
 
     var regenBtn =
       '<button type="button" class="cbi-button cbi-button-red" data-cmd="regen"><%:Regenerate CA%></button>';
@@ -96,7 +96,7 @@
 
   function refresh() {
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/admin/services/mitmweb/status_json', true);
+    xhr.open('GET', '/cgi-bin/mitmweb/status', true);
     xhr.onload = function () {
       try {
         var data = JSON.parse(xhr.responseText);
@@ -109,7 +109,7 @@
 
   function sendCmd(cmd, body) {
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/admin/services/mitmweb/' + cmd, true);
+    xhr.open('POST', '/cgi-bin/mitmweb/' + cmd, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(body ? JSON.stringify(body) : '{}');
   }

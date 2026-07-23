@@ -1,0 +1,32 @@
+#!/bin/sh
+# /www/cgi-bin/mitmweb/cert — download CA cert in various formats.
+#
+# ?fmt=pem|p12|cer|key  →  serves the corresponding file from
+# $confdir/.mitmproxy/. mitmproxy's optmanager creates these on first
+# start; until then the response is 404.
+
+CONFDIR="$(uci -q get mitmweb.main.confdir 2>/dev/null || echo /etc/mitmweb)"
+FMT="$(echo "$QUERY_STRING" | tr '&' '\n' | sed -nE 's/^fmt=([^&]+).*/\1/p' | head -n1)"
+[ -z "$FMT" ] && FMT=pem
+
+case "$FMT" in
+    pem) FILE="mitmproxy-ca-cert.pem"; MIME="application/x-pem-file";   NAME="mitmproxy-ca-cert.pem" ;;
+    p12) FILE="mitmproxy-ca-cert.p12"; MIME="application/x-pkcs12";    NAME="mitmproxy-ca-cert.p12" ;;
+    cer) FILE="mitmproxy-ca-cert.cer"; MIME="application/x-x509-ca-cert"; NAME="mitmproxy-ca-cert.cer" ;;
+    key) FILE="mitmproxy-ca.pem";     MIME="application/x-pem-file";    NAME="mitmproxy-ca-private-key.pem" ;;
+    *)   echo "Status: 400 Bad Request"; echo "Content-Type: text/plain"; echo; echo "unknown fmt: $FMT"; exit 1 ;;
+esac
+
+PATH_FILE="$CONFDIR/.mitmproxy/$FILE"
+if [ ! -f "$PATH_FILE" ]; then
+    echo "Status: 404 Not Found"
+    echo "Content-Type: text/plain"
+    echo
+    echo "CA not generated yet — start the service first, then refresh this page."
+    exit 1
+fi
+
+echo "Content-Type: $MIME"
+echo "Content-Disposition: attachment; filename=\"$NAME\""
+echo
+cat "$PATH_FILE"

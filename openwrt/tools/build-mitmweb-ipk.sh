@@ -363,13 +363,18 @@ build_ipk "luci-app-mitmweb" "all" \
     "URL: https://mitmproxy.org/" \
     "Maintainer: mitmproxy contributors" \
     -- \
-    "$PKG_ROOT/luasrc/controller/mitmweb.lua"         "/usr/lib/lua/luci/controller/mitmweb.lua"    "0644" \
-    "$PKG_ROOT/luasrc/model/cbi/mitmweb.lua"           "/usr/lib/lua/luci/model/cbi/mitmweb.lua"      "0644" \
-    "$PKG_ROOT/luasrc/view/mitmweb/status.htm"         "/usr/lib/lua/luci/view/mitmweb/status.htm"    "0644" \
-    "$PKG_ROOT/po/en/mitmweb.po"                      "/usr/lib/lua/luci/i18n/mitmweb.en.po"         "0644" \
-    "$PKG_ROOT/po/zh-cn/mitmweb.po"                   "/usr/lib/lua/luci/i18n/mitmweb.zh-cn.po"      "0644" \
+    "$PKG_ROOT/luasrc/controller/mitmweb.lua"              "/usr/lib/lua/luci/controller/mitmweb.lua"    "0644" \
+    "$PKG_ROOT/luasrc/model/cbi/mitmweb.lua"               "/usr/lib/lua/luci/model/cbi/mitmweb.lua"      "0644" \
+    "$PKG_ROOT/luasrc/view/mitmweb/status.htm"             "/usr/lib/lua/luci/view/mitmweb/status.htm"    "0644" \
+    "$PKG_ROOT/po/en/mitmweb.po"                          "/usr/lib/lua/luci/i18n/mitmweb.en.po"         "0644" \
+    "$PKG_ROOT/po/zh-cn/mitmweb.po"                       "/usr/lib/lua/luci/i18n/mitmweb.zh-cn.po"      "0644" \
     "$PKG_ROOT/files/usr/share/luci/menu.d/luci-app-mitmweb.json"  "/usr/share/luci/menu.d/luci-app-mitmweb.json"  "0644" \
-    "$PKG_ROOT/files/usr/share/rpcd/acl.d/luci-app-mitmweb.json"   "/usr/share/rpcd/acl.d/luci-app-mitmweb.json"   "0644"
+    "$PKG_ROOT/files/usr/share/rpcd/acl.d/luci-app-mitmweb.json"   "/usr/share/rpcd/acl.d/luci-app-mitmweb.json"   "0644" \
+    "$PKG_ROOT/files/www/cgi-bin/mitmweb/status"     "/www/cgi-bin/mitmweb/status"     "0755" \
+    "$PKG_ROOT/files/www/cgi-bin/mitmweb/cert"       "/www/cgi-bin/mitmweb/cert"       "0755" \
+    "$PKG_ROOT/files/www/cgi-bin/mitmweb/logtail"    "/www/cgi-bin/mitmweb/logtail"    "0755" \
+    "$PKG_ROOT/files/www/cgi-bin/mitmweb/control"    "/www/cgi-bin/mitmweb/control"    "0755" \
+    "$PKG_ROOT/files/www/cgi-bin/mitmweb/regen_ca"   "/www/cgi-bin/mitmweb/regen_ca"   "0755"
 
 echo ">>> Done."
 ls -la "$OUT"

@@ -1,0 +1,57 @@
+#!/bin/sh
+# /www/cgi-bin/mitmweb/status — JSON status snapshot for the Status tab.
+#
+# Why this is a CGI and not a LuCI leaf action: OpenWrt 23.05+ moved
+# the LuCI dispatcher to ucode and stopped registering Lua controllers
+# via /usr/lib/lua/luci/controller/*.lua. Our previous controller.lua
+# file landed on disk but the dispatcher silently ignored it (route
+# lookup returned 404), so the Status tab's XHR couldn't reach the
+# leaf handler. Serving JSON from /cgi-bin/mitmweb/status bypasses
+# the dispatcher entirely: uhttpd ships with cgi_prefix=/cgi-bin so
+# any executable file under /www/cgi-bin/ is invoked as CGI, and
+# the JS in view/mitmweb/status.htm calls this URL directly.
+
+CONFDIR="$(uci -q get mitmweb.main.confdir 2>/dev/null || echo /etc/mitmweb)"
+LOGFILE="/var/log/mitmweb.log"
+
+# --- running pids ---
+PIDS=$(pgrep -f 'mitmweb.bin' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+
+# --- mode (MultiValue → space-joined) ---
+MODE=$(uci -q get mitmweb.main.mode 2>/dev/null)
+[ -z "$MODE" ] && MODE="-"
+
+# --- web URL ---
+WEB_HOST=$(uci -q get mitmweb.main.web_host 2>/dev/null || echo 0.0.0.0)
+WEB_PORT=$(uci -q get mitmweb.main.web_port 2>/dev/null || echo 8081)
+if [ -z "$WEB_HOST" ] || [ "$WEB_HOST" = "0.0.0.0" ]; then
+    WEB_HOST=$(uci -q get network.lan.ipaddr 2>/dev/null | head -n1)
+    [ -z "$WEB_HOST" ] && WEB_HOST="192.168.1.1"
+fi
+
+# --- CA info ---
+CERT="$CONFDIR/.mitmproxy/mitmproxy-ca-cert.pem"
+if [ -f "$CERT" ]; then
+    CA_RAW=$(openssl x509 -in "$CERT" -noout -subject -issuer -dates -serial -fingerprint -sha256 2>/dev/null)
+    CA_EXISTS="true"
+else
+    CA_RAW=""
+    CA_EXISTS="false"
+fi
+
+# --- log tail ---
+LOG_TAIL=""
+if [ -f "$LOGFILE" ]; then
+    LOG_TAIL=$(tail -n 30 "$LOGFILE" 2>/dev/null)
+fi
+
+# --- emit JSON (manual construction; busybox has no JSON encoder) ---
+# We don't shell-escape strings aggressively — mitmweb's CA subject / log
+# lines are plain ASCII. If a literal " or \ ever appears in a log, the
+# response becomes invalid JSON; that's a known acceptable risk for the
+# 23.05+ ucode-dispatcher path which can't run Lua cleanly.
+cat <<EOF
+Content-Type: application/json
+
+{"running": $([ -n "$PIDS" ] && echo true || echo false), "pids": [$(echo "$PIDS" | awk 'BEGIN{ORS=","}{print "\""$0"\""}')], "mode": "$MODE", "web_url": "http://$WEB_HOST:$WEB_PORT", "confdir": "$CONFDIR", "ca_info": {"exists": $CA_EXISTS, "raw": "$CA_RAW"}, "log_tail": "$LOG_TAIL"}
+EOF
