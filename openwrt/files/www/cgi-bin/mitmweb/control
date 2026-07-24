@@ -2,20 +2,60 @@
 # /www/cgi-bin/mitmweb/control — service lifecycle (start/stop/restart/enable/disable).
 #
 # ?cmd=start|stop|restart|enable|disable  →  runs the matching /etc/init.d/mitmweb
-# subcommand. Returns JSON {ok: <bool>, cmd: <string>}.
+# subcommand, then polls for the actual state. /etc/init.d/mitmweb start
+# returns 0 unconditionally (procd calls the start_service() callback and
+# ignores its return value), so we can't trust its exit code — only
+# the process table tells us whether the service is actually running.
+# Returns JSON {ok: <bool>, cmd: <string>, error: <string>}.
 CMD="$(echo "$QUERY_STRING" | tr '&' '\n' | sed -nE 's/^cmd=([^&]+).*/\1/p' | head -n1)"
 [ -z "$CMD" ] && CMD="status"
 
 OK="false"
 case "$CMD" in
     start|stop|restart|enable|disable)
-        if /etc/init.d/mitmweb "$CMD" >/dev/null 2>&1; then
-            OK="true"
-        fi
+        /etc/init.d/mitmweb "$CMD" >/dev/null 2>&1
+        # Give procd / the init script's pre-flight a moment to settle.
+        # start: poll up to 5s for the binary; stop/restart: short poll.
+        case "$CMD" in
+            start|restart)
+                i=0
+                while [ $i -lt 5 ]; do
+                    sleep 1
+                    if pgrep -f 'mitmweb.bin' >/dev/null 2>&1; then
+                        OK="true"
+                        break
+                    fi
+                    i=$((i+1))
+                done
+                ;;
+            stop)
+                i=0
+                while [ $i -lt 3 ]; do
+                    sleep 1
+                    if ! pgrep -f 'mitmweb.bin' >/dev/null 2>&1; then
+                        OK="true"
+                        break
+                    fi
+                    i=$((i+1))
+                done
+                ;;
+            enable|disable)
+                OK="true"   # enable/disable are fire-and-forget
+                ;;
+        esac
         ;;
 esac
 
+# Pull the most recent error message from the log so the Status tab
+# can show "Start failed because…" rather than just "OK=true".
+ERROR=""
+if [ "$OK" != "true" ] && [ -f /var/log/mitmweb.log ]; then
+    ERROR=$(grep -E '^(BINARY STARTUP FAILED|INCOMPATIBLE LIBC)' /var/log/mitmweb.log | tail -n1)
+fi
+
 echo "Content-Type: application/json"
 echo
-# CMD is one of a fixed allow-list; safe to interpolate unescaped.
-printf '{"ok": %s, "cmd": "%s"}\n' "$OK" "$CMD"
+printf '{"ok": %s, "cmd": "%s", "error": "%s"}\n' \
+    "$OK" \
+    "$CMD" \
+    "$(printf '%s' "$ERROR" | sed 's/\\/\\\\/g;s/"/\\"/g;s/	/ /g')"
