@@ -54,6 +54,13 @@
       : '<span class="mitmweb-pill off"><%:STOPPED%></span>';
     var pids = (s.pids || []).join(', ') || '-';
 
+    var errorBlock = '';
+    if (s.error) {
+      errorBlock =
+        '<h3 style="margin-top:1em"><%:Error%></h3>' +
+        '<pre class="mitmweb-log" style="background:#fee;color:#c00">' + esc(s.error) + '</pre>';
+    }
+
     var ca = '<em><%:CA not generated yet — start the service to create it.%></em>';
     if (s.ca_info && s.ca_info.exists) {
       ca = '<pre>' + esc(s.ca_info.raw) + '</pre>';
@@ -91,7 +98,8 @@
       '<p><small><%:CA validity: 10 years. Per-domain leaf certs: 199 days (auto-renewed).%></small></p>' +
 
       '<h3 style="margin-top:1em"><%:Recent log%></h3>' +
-      '<pre class="mitmweb-log">' + esc(s.log_tail || '') + '</pre>';
+      '<pre class="mitmweb-log">' + esc(s.log_tail || '') + '</pre>' +
+      errorBlock;
   }
 
   function refresh() {

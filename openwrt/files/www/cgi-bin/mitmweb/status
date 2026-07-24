@@ -21,6 +21,15 @@ if [ -n "$PIDS_RAW" ]; then
     PIDS_JSON=$(printf '%s' "$PIDS_RAW" | awk 'BEGIN{ORS=","} {printf "\"%s\",", $1}' | sed 's/,$//' | awk '{printf "["$0"]"}')
 fi
 
+# --- error report (from /var/log/mitmweb.log if the init.d pre-flight
+# check wrote one). Surfaced in the Status tab so the user sees why
+# mitmweb isn't running without having to ssh into the device. ---
+ERROR_MSG=""
+if [ -f "$LOGFILE" ]; then
+    ERROR_MSG=$(grep -E '^BINARY STARTUP FAILED|^INCOMPATIBLE LIBC|^BINARY STARTUP' "$LOGFILE" 2>/dev/null | head -n1)
+    [ -z "$ERROR_MSG" ] && ERROR_MSG=""
+fi
+
 # --- mode (MultiValue → space-joined; empty string in JSON if unset) ---
 MODE=$(uci -q get mitmweb.main.mode 2>/dev/null | awk '{$1=$1};1')
 
@@ -66,7 +75,7 @@ json_esc() {
 
 echo "Content-Type: application/json"
 echo
-printf '{"running": %s, "pids": %s, "mode": "%s", "web_url": "http://%s:%s", "confdir": "%s", "ca_info": {"exists": %s, "raw": "%s"}, "log_tail": "%s"}\n' \
+printf '{"running": %s, "pids": %s, "mode": "%s", "web_url": "http://%s:%s", "confdir": "%s", "ca_info": {"exists": %s, "raw": "%s"}, "log_tail": "%s", "error": "%s"}\n' \
     "$([ -n "$PIDS_RAW" ] && echo true || echo false)" \
     "$PIDS_JSON" \
     "$(json_esc "$MODE")" \
@@ -75,4 +84,5 @@ printf '{"running": %s, "pids": %s, "mode": "%s", "web_url": "http://%s:%s", "co
     "$(json_esc "$CONFDIR")" \
     "$CA_EXISTS" \
     "$(json_esc "$CA_RAW")" \
-    "$(json_esc "$LOG_TAIL")"
+    "$(json_esc "$LOG_TAIL")" \
+    "$(json_esc "$ERROR_MSG")"

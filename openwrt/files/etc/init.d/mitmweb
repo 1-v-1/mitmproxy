@@ -319,6 +319,54 @@ start_service() {
         return 1
     fi
 
+    # Pre-flight: probe the binary for libc compatibility before letting
+    # procd spawn it. CPython 3.13 (and therefore PyInstaller's bundled
+    # libpython3.13.so) imports pwritev2, which musl 1.2.4 (OpenWrt
+    # 23.05) doesn't export. If we don't check up-front, procd just
+    # respawns a binary that exits with "Error relocating ...
+    # pwritev2: symbol not found", produces zero log output, and the
+    # user gets the confusing "Start does nothing" report. We probe by
+    # running `--version` briefly and capturing stderr — the relocation
+    # error prints synchronously before the binary exits, so a 1-second
+    # timeout is enough. This is robust against stripped binaries
+    # (objdump -T shows nothing useful on PyInstaller's stripped ELF).
+    local probe_out probe_msg
+    # busybox on minimal OpenWrt builds often lacks `timeout`. Use
+    # backgrounded invocation + sleep + kill, which works everywhere.
+    HOME="$(uci_get confdir "$CONFDIR_DEFAULT")" "$BIN" --version >/dev/null 2>&1 &
+    local probe_pid=$!
+    sleep 2
+    kill -0 "$probe_pid" 2>/dev/null && kill "$probe_pid" 2>/dev/null
+    wait "$probe_pid" 2>/dev/null
+    local probe_rc=$?
+    # Re-run capturing stderr. (We can't capture both cleanly without
+    # `timeout`; capture once, throw away stdout.)
+    HOME="$(uci_get confdir "$CONFDIR_DEFAULT")" "$BIN" --version 2>"$LOGFILE.tmp" >/dev/null &
+    probe_pid=$!
+    sleep 2
+    kill -0 "$probe_pid" 2>/dev/null && kill "$probe_pid" 2>/dev/null
+    wait "$probe_pid" 2>/dev/null
+    probe_rc=$?
+    probe_out=$(cat "$LOGFILE.tmp" 2>/dev/null)
+    rm -f "$LOGFILE.tmp"
+    if [ "$probe_rc" -ne 0 ]; then
+        if printf '%s' "$probe_out" | grep -q 'pwritev2'; then
+            probe_msg="INCOMPATIBLE LIBC: mitmweb.bin needs pwritev2, which musl < 1.2.5 (OpenWrt 23.05) does not export. Detected musl: $(/lib/ld-musl-*.so.1 --version 2>&1 | head -1). Upgrade to OpenWrt 24.10 or newer; the binary will not start on this release."
+        elif printf '%s' "$probe_out" | grep -q 'GLIBC'; then
+            probe_msg="INCOMPATIBLE LIBC: this looks like a glibc build, but OpenWrt uses musl. Please verify the binary."
+        elif [ -z "$probe_out" ]; then
+            probe_msg="BINARY STARTUP FAILED: $BIN exited without output. Check executable bit, filesystem, or architecture."
+        else
+            probe_msg="BINARY STARTUP FAILED: $BIN --version exited with error: $(printf '%s' "$probe_out" | head -1)"
+        fi
+        logger -t mitmweb "$probe_msg"
+        mkdir -p /var/log
+        touch "$LOGFILE"
+        printf '%s\n%s\n' "$(date -Iseconds 2>/dev/null || date)" "$probe_msg" > "$LOGFILE"
+        echo "$probe_msg" >&2
+        return 1
+    fi
+
     local confdir
     confdir="$(uci_get confdir "$CONFDIR_DEFAULT")"
     mkdir -p "$confdir" /var/log
