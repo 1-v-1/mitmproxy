@@ -17,4 +17,5 @@ esac
 
 echo "Content-Type: application/json"
 echo
-echo "{\"ok\": $OK, \"cmd\": \"$CMD\"}"
+# CMD is one of a fixed allow-list; safe to interpolate unescaped.
+printf '{"ok": %s, "cmd": "%s"}\n' "$OK" "$CMD"

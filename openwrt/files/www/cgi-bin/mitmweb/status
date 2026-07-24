@@ -14,12 +14,15 @@
 CONFDIR="$(uci -q get mitmweb.main.confdir 2>/dev/null || echo /etc/mitmweb)"
 LOGFILE="/var/log/mitmweb.log"
 
-# --- running pids ---
-PIDS=$(pgrep -f 'mitmweb.bin' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+# --- running pids (array; [] if none) ---
+PIDS_JSON="[]"
+PIDS_RAW=$(pgrep -f 'mitmweb.bin' 2>/dev/null)
+if [ -n "$PIDS_RAW" ]; then
+    PIDS_JSON=$(printf '%s' "$PIDS_RAW" | awk 'BEGIN{ORS=","} {printf "\"%s\",", $1}' | sed 's/,$//' | awk '{printf "["$0"]"}')
+fi
 
-# --- mode (MultiValue → space-joined) ---
-MODE=$(uci -q get mitmweb.main.mode 2>/dev/null)
-[ -z "$MODE" ] && MODE="-"
+# --- mode (MultiValue → space-joined; empty string in JSON if unset) ---
+MODE=$(uci -q get mitmweb.main.mode 2>/dev/null | awk '{$1=$1};1')
 
 # --- web URL ---
 WEB_HOST=$(uci -q get mitmweb.main.web_host 2>/dev/null || echo 0.0.0.0)
@@ -29,14 +32,13 @@ if [ -z "$WEB_HOST" ] || [ "$WEB_HOST" = "0.0.0.0" ]; then
     [ -z "$WEB_HOST" ] && WEB_HOST="192.168.1.1"
 fi
 
-# --- CA info ---
+# --- CA info (string; quoted properly) ---
 CERT="$CONFDIR/.mitmproxy/mitmproxy-ca-cert.pem"
+CA_EXISTS="false"
+CA_RAW=""
 if [ -f "$CERT" ]; then
-    CA_RAW=$(openssl x509 -in "$CERT" -noout -subject -issuer -dates -serial -fingerprint -sha256 2>/dev/null)
     CA_EXISTS="true"
-else
-    CA_RAW=""
-    CA_EXISTS="false"
+    CA_RAW=$(openssl x509 -in "$CERT" -noout -subject -issuer -dates -serial -fingerprint -sha256 2>/dev/null)
 fi
 
 # --- log tail ---
@@ -45,13 +47,32 @@ if [ -f "$LOGFILE" ]; then
     LOG_TAIL=$(tail -n 30 "$LOGFILE" 2>/dev/null)
 fi
 
-# --- emit JSON (manual construction; busybox has no JSON encoder) ---
-# We don't shell-escape strings aggressively — mitmweb's CA subject / log
-# lines are plain ASCII. If a literal " or \ ever appears in a log, the
-# response becomes invalid JSON; that's a known acceptable risk for the
-# 23.05+ ucode-dispatcher path which can't run Lua cleanly.
-cat <<EOF
-Content-Type: application/json
+# Build JSON via printf so we can use %s for the variable parts without
+# sub-shelling into awk. Every user-supplied field goes through json_esc.
+json_esc() {
+    # Escape \ and " and replace newlines / tabs with spaces so the
+    # result is a valid single-line JSON string.
+    printf '%s' "$1" | awk '
+        BEGIN { ORS="" }
+        {
+            gsub(/\\/, "\\\\")
+            gsub(/"/,  "\\\"")
+            gsub(/\n/, " ")
+            gsub(/\r/, " ")
+            gsub(/\t/, " ")
+            print
+        }'
+}
 
-{"running": $([ -n "$PIDS" ] && echo true || echo false), "pids": [$(echo "$PIDS" | awk 'BEGIN{ORS=","}{print "\""$0"\""}')], "mode": "$MODE", "web_url": "http://$WEB_HOST:$WEB_PORT", "confdir": "$CONFDIR", "ca_info": {"exists": $CA_EXISTS, "raw": "$CA_RAW"}, "log_tail": "$LOG_TAIL"}
-EOF
+echo "Content-Type: application/json"
+echo
+printf '{"running": %s, "pids": %s, "mode": "%s", "web_url": "http://%s:%s", "confdir": "%s", "ca_info": {"exists": %s, "raw": "%s"}, "log_tail": "%s"}\n' \
+    "$([ -n "$PIDS_RAW" ] && echo true || echo false)" \
+    "$PIDS_JSON" \
+    "$(json_esc "$MODE")" \
+    "$(json_esc "$WEB_HOST")" \
+    "$WEB_PORT" \
+    "$(json_esc "$CONFDIR")" \
+    "$CA_EXISTS" \
+    "$(json_esc "$CA_RAW")" \
+    "$(json_esc "$LOG_TAIL")"
