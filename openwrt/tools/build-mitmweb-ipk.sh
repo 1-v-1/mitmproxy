@@ -39,8 +39,8 @@
 #       --out path/to/output-dir
 #
 # Outputs (in --out):
-#   mitmweb_<ver>-r1_<arch>.ipk
-#   luci-app-mitmweb_<ver>-r1_all.ipk
+#   mitmweb_<ver>-r2_<arch>.ipk
+#   luci-app-mitmweb_<ver>-r2_all.ipk
 
 set -euo pipefail
 
@@ -258,7 +258,7 @@ EOF
     (cd "$root/data"    && tar --format=ustar --no-xattrs --no-acls --owner=0 --group=0 -czf "$WORK/data.tar.gz"    .)
     printf '2.0\n' > "$WORK/debian-binary"
 
-    local out_ipk="$OUT/${pkg}_${VERSION}-r1_${arch}.ipk"
+    local out_ipk="$OUT/${pkg}_${VERSION}-r2_${arch}.ipk"
     rm -f "$out_ipk"
     # Package: OpenWrt's ipk format is gzip-of-tar-of-tar — a single
     # gzip stream wrapping a tar archive that contains the three
@@ -284,7 +284,7 @@ EOF
 }
 
 # ----------------------------------------------------------------------------
-# 3. Build mitmweb_<ver>-r1_<arch>.ipk
+# 3. Build mitmweb_<ver>-r2_<arch>.ipk
 # ----------------------------------------------------------------------------
 # File layout (mirrors the old Package/mitmweb/install recipe 1:1):
 #   /usr/lib/mitmweb/mitmweb.bin        — the stripped ELF from the tarball
@@ -309,7 +309,7 @@ mkdir -p "$WORK/sentinel-etc-mitmweb"
 
 build_ipk "mitmweb" "$ARCH" \
     "Package: mitmweb" \
-    "Version: ${VERSION}-r1" \
+    "Version: ${VERSION}-r2" \
     "Depends: iptables-nft, kmod-nf-nat, kmod-ipt-nat, libc, libopenssl, zlib, ca-bundle, libpthread" \
     "Section: net" \
     "Category: Network" \
@@ -329,10 +329,10 @@ build_ipk "mitmweb" "$ARCH" \
     "$WORK/sentinel-etc-mitmweb/.keep"                             "/etc/mitmweb/.keep"                          "0750"
 
 # ----------------------------------------------------------------------------
-# 4. Build luci-app-mitmweb_<ver>-r1_all.ipk
+# 4. Build luci-app-mitmweb_<ver>-r2_all.ipk
 # ----------------------------------------------------------------------------
 # ----------------------------------------------------------------------------
-# 4. Build luci-app-mitmweb_<ver>-r1_all.ipk
+# 4. Build luci-app-mitmweb_<ver>-r2_all.ipk
 # ----------------------------------------------------------------------------
 # File layout (mirrors the old Package/luci-app-mitmweb/install recipe):
 #   /usr/lib/lua/luci/controller/mitmweb.lua  — module entry
@@ -355,7 +355,7 @@ build_ipk "mitmweb" "$ARCH" \
 #     `list read '*'` grants root access to every group).
 build_ipk "luci-app-mitmweb" "all" \
     "Package: luci-app-mitmweb" \
-    "Version: ${VERSION}-r1" \
+    "Version: ${VERSION}-r2" \
     "Depends: luci-base, mitmweb" \
     "Section: luci" \
     "Category: LuCI" \

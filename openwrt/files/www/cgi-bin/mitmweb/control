@@ -11,6 +11,27 @@ CMD="$(echo "$QUERY_STRING" | tr '&' '\n' | sed -nE 's/^cmd=([^&]+).*/\1/p' | he
 [ -z "$CMD" ] && CMD="status"
 
 OK="false"
+ERROR=""
+
+# Reject start/stop if the user hasn't enabled auto-start in UCI. The init
+# script's start_service() silently returns 0 with a syslog-only message
+# when enabled=0, so the CGI would otherwise report success without
+# actually starting anything.
+case "$CMD" in
+    start|restart)
+        if [ "$(uci -q get mitmweb.main.enabled)" != "1" ]; then
+            OK="false"
+            ERROR="mitmweb.main.enabled is 0 in UCI. Click 'Save & Apply' on the Basic Settings tab first, or set 'uci set mitmweb.main.enabled=1 && uci commit mitmweb' from the shell."
+            echo "Content-Type: application/json"
+            echo
+            printf '{"ok": false, "cmd": "%s", "error": "%s"}\n' \
+                "$CMD" \
+                "$(printf '%s' "$ERROR" | sed 's/\\/\\\\/g;s/"/\\"/g;s/	/ /g')"
+            exit 0
+        fi
+        ;;
+esac
+
 case "$CMD" in
     start|stop|restart|enable|disable)
         /etc/init.d/mitmweb "$CMD" >/dev/null 2>&1
@@ -48,9 +69,8 @@ esac
 
 # Pull the most recent error message from the log so the Status tab
 # can show "Start failed because…" rather than just "OK=true".
-ERROR=""
 if [ "$OK" != "true" ] && [ -f /var/log/mitmweb.log ]; then
-    ERROR=$(grep -E '^(BINARY STARTUP FAILED|INCOMPATIBLE LIBC)' /var/log/mitmweb.log | tail -n1)
+    ERROR=$(grep -E '^(BINARY STARTUP FAILED|INCOMPATIBLE LIBC|disabled in UCI)' /var/log/mitmweb.log | tail -n1)
 fi
 
 echo "Content-Type: application/json"
